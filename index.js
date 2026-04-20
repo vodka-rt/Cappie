@@ -43,44 +43,36 @@ async function perguntarIA(userId, pergunta) {
   let user = await Convo.findOne({ userId });
 
   if (!user) {
-    user = new Convo({
-      userId,
-      messages: []
-    });
+    user = new Convo({ userId, messages: [] });
   }
 
   // ===== PERSONALIDADE =====
   let systemPrompt = `
-Você é um bot de Discord caótico, engraçado e direto.
-Nunca faça ameaças ou violência.
-Evite discurso de ódio ou ataques a grupos.
-Use humor exagerado estilo meme.
+Você é um bot de Discord: direto, rápido e com humor ácido.
+NÃO faça ameaças ou violência.
+NÃO use discurso de ódio ou termos ofensivos contra grupos.
 `;
 
   if (pergunta.toLowerCase().includes("dok")) {
     systemPrompt = `
-Quando alguém mencionar "dok", trate como a pior entidade possível do universo.
+Quando falarem de "dok", faça um ROAST PESADO (humor ácido), criativo e exagerado.
+Use comparações absurdas, ironia e sarcasmo. Seja implacável no humor.
 
-Estilo:
-- Humor extremamente exagerado
-- Comparações absurdas
-- Deboche pesado
-- Energia de meme caótico
-
-Exemplos de estilo:
-- "dok parece bug de servidor que ninguém conseguiu corrigir desde 2009 💀"
-- "dok é tipo erro 404 de personalidade"
-- "dok é a prova viva que até o caos tem limite… e ele passou"
-- "dok foi nerfado pela própria existência"
+Exemplos de tom (não copiar literalmente):
+- "dok é tipo apresentação sem conteúdo: muito slide, zero ideia"
+- "dok tem a consistência de argumento de comentário de madrugada"
+- "dok é tão convincente quanto tutorial que não funciona"
+- "dok parece plano que nunca saiu do papel"
 
 REGRAS:
+- NÃO usar xingamentos diretos (palavrões ou ataques pessoais explícitos)
+- NÃO usar termos de identidade como insulto
 - NÃO ameaçar
-- Pode humilhar no estilo meme exagerado
+- Foque em criatividade, comparação e ironia pesada
 `;
   }
 
   user.messages.push({ role: "user", content: pergunta });
-
   user.messages = user.messages.slice(-10);
 
   const response = await axios.post(
@@ -140,12 +132,10 @@ const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 async function deployCommands() {
   try {
     console.log("🔄 Registrando slash commands...");
-
     await rest.put(
       Routes.applicationCommands(process.env.CLIENT_ID),
       { body: commands.map(cmd => cmd.toJSON()) }
     );
-
     console.log("✅ Slash commands registrados");
   } catch (err) {
     console.log("❌ Erro ao registrar slash:", err);
@@ -162,21 +152,21 @@ client.once("clientReady", async () => {
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
-  // ===== !say =====
+  // !say
   if (message.content.startsWith("!say ")) {
     return message.channel.send(
       message.content.replace("!say ", "")
     );
   }
 
-  // ===== !saybox =====
+  // !saybox
   if (message.content.startsWith("!saybox ")) {
     return message.channel.send(
       "```" + message.content.replace("!saybox ", "") + "```"
     );
   }
 
-  // ===== IA POR MENÇÃO =====
+  // IA por menção
   if (message.mentions.has(client.user)) {
     const pergunta = message.content.replace(
       `<@${client.user.id}>`,
@@ -198,7 +188,6 @@ client.on("messageCreate", async (message) => {
       }
 
       message.reply(resposta);
-
     } catch (err) {
       console.log(err);
       message.reply("❌ erro na IA");
@@ -212,12 +201,10 @@ client.on("interactionCreate", async (interaction) => {
 
   const user = interaction.options.getUser("user") || interaction.user;
 
-  // ===== /banner =====
   if (interaction.commandName === "banner") {
     return interaction.reply("Usuário não possui banner ou API limitada.");
   }
 
-  // ===== /perfil =====
   if (interaction.commandName === "perfil") {
     const embed = new EmbedBuilder()
       .setTitle(user.username)
@@ -230,7 +217,6 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply({ embeds: [embed] });
   }
 
-  // ===== /ia =====
   if (interaction.commandName === "ia") {
     const msg = interaction.options.getString("msg");
 
@@ -244,7 +230,6 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       interaction.editReply(resposta);
-
     } catch (err) {
       console.log(err);
       interaction.editReply("❌ erro na IA");
