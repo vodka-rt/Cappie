@@ -1,20 +1,18 @@
-// ===== PROTEÇÃO GLOBAL =====
+// ===== PROTEÇÃO =====
 if (global.botStarted) process.exit();
 global.botStarted = true;
+
+require("dotenv").config();
 
 const {
   Client,
   GatewayIntentBits,
-  EmbedBuilder,
-  SlashCommandBuilder,
-  REST,
-  Routes
+  Partials,
+  EmbedBuilder
 } = require("discord.js");
 
+const mongoose = require("mongoose");
 const axios = require("axios");
-const connectDB = require("./database");
-
-const GUILD_ID = "1489697666203123933";
 
 // ===== CLIENT =====
 const client = new Client({
@@ -22,143 +20,114 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent
-  ]
+  ],
+  partials: [Partials.Channel]
 });
 
-client.once("clientReady", () => {
-  console.log("ONLINE:", client.user.tag);
+// ===== MONGODB =====
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log("🟢 Mongo conectado"))
+  .catch(err => console.log(err));
+
+// ===== SCHEMA =====
+const convoSchema = new mongoose.Schema({
+  userId: String,
+  messages: Array
 });
 
-// ===== IA SIMPLES (SEM MEMÓRIA) =====
-async function perguntarIA(pergunta) {
-  try {
-    const res = await axios.post(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        model: "openrouter/auto",
-        temperature: 0.5,
-        max_tokens: 120,
-        messages: [
-          {
-            role: "system",
-            content: `
-Você é Cappi.
+const Convo = mongoose.model("Convo", convoSchema);
 
-REGRAS:
-- responda em português
-- seja natural e direta
-- não repita frases
-- não mude de assunto
-`
-          },
-          { role: "user", content: pergunta }
-        ]
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json"
-        }
-      }
-    );
+// ===== IA (OPENROUTER) =====
+async function perguntarIA(userId, pergunta) {
+  let user = await Convo.findOne({ userId });
 
-    let resposta = res.data?.choices?.[0]?.message?.content || "...";
-    return resposta.trim();
-
-  } catch (err) {
-    console.error("ERRO IA:", err.response?.data || err.message);
-    return "deu erro 😅";
+  if (!user) {
+    user = new Convo({
+      userId,
+      messages: []
+    });
   }
+
+  user.messages.push({ role: "user", content: pergunta });
+
+  // limita histórico
+  user.messages = user.messages.slice(-10);
+
+  const response = await axios.post(
+    "https://openrouter.ai/api/v1/chat/completions",
+    {
+      model: "openai/gpt-3.5-turbo",
+      messages: user.messages
+    },
+    {
+      headers: {
+        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json"
+      }
+    }
+  );
+
+  const reply = response.data.choices[0].message.content;
+
+  user.messages.push({ role: "assistant", content: reply });
+  await user.save();
+
+  return reply;
 }
 
-// ===== PREFIX COMMANDS (!say / !saybox) =====
+// ===== READY =====
+client.once("clientReady", () => {
+  console.log(`🤖 Online como ${client.user.tag}`);
+});
+
+// ===== COMANDOS =====
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
   // ===== !say =====
   if (message.content.startsWith("!say ")) {
-    const texto = message.content.slice(5);
-    if (!texto) return;
-
-    await message.delete().catch(() => {});
-    return message.channel.send(texto);
+    return message.channel.send(
+      message.content.replace("!say ", "")
+    );
   }
 
   // ===== !saybox =====
   if (message.content.startsWith("!saybox ")) {
-    const texto = message.content.slice(8);
-    if (!texto) return;
-
-    await message.delete().catch(() => {});
-
-    return message.channel.send({
-      embeds: [
-        new EmbedBuilder()
-          .setColor("#5865F2")
-          .setDescription(texto)
-      ]
-    });
+    return message.channel.send(
+      "```" + message.content.replace("!saybox ", "") + "```"
+    );
   }
-});
 
-// ===== SLASH =====
-client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
+  // ===== IA POR MENÇÃO =====
+  if (message.mentions.has(client.user)) {
+    const pergunta = message.content.replace(
+      `<@${client.user.id}>`,
+      ""
+    ).trim();
 
-  // ===== IA =====
-  if (interaction.commandName === "ia") {
-    const pergunta = interaction.options.getString("pergunta");
     if (!pergunta) return;
 
     try {
-      await interaction.deferReply();
+      await message.channel.sendTyping();
 
-      const resposta = await perguntarIA(pergunta);
+      let resposta = await perguntarIA(
+        message.author.id,
+        pergunta
+      );
 
-      return interaction.editReply({
-        embeds: [
-          new EmbedBuilder()
-            .setColor("#5865F2")
-            .setAuthor({
-              name: "💬 Cappi",
-              iconURL: client.user.displayAvatarURL()
-            })
-            .setDescription(resposta)
-        ]
-      });
+      // limitar 2000 chars
+      if (resposta.length > 2000) {
+        resposta = resposta.slice(0, 1990) + "...";
+      }
+
+      message.reply(resposta);
 
     } catch (err) {
-      console.error(err);
-      return interaction.reply({
-        content: "deu erro 😅",
-        ephemeral: true
-      });
+      console.log(err);
+      message.reply("❌ erro na IA");
     }
   }
 });
 
-// ===== COMANDOS =====
-const commands = [
-  new SlashCommandBuilder()
-    .setName("ia")
-    .setDescription("Conversar com a Cappi")
-    .addStringOption(o =>
-      o.setName("pergunta")
-        .setDescription("Pergunta")
-        .setRequired(true)
-    )
-].map(c => c.toJSON());
-
-const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
-
-// ===== START =====
-(async () => {
-  await connectDB();
-
-  await rest.put(
-    Routes.applicationGuildCommands(process.env.CLIENT_ID, GUILD_ID),
-    { body: commands }
-  );
-
-  await client.login(process.env.TOKEN);
-})();
+// ===== LOGIN =====
+client.login(process.env.DISCORD_TOKEN);
