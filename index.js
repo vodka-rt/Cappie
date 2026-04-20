@@ -38,7 +38,7 @@ const convoSchema = new mongoose.Schema({
 
 const Convo = mongoose.model("Convo", convoSchema);
 
-// ===== IA (OPENROUTER) =====
+// ===== IA =====
 async function perguntarIA(userId, pergunta) {
   let user = await Convo.findOne({ userId });
 
@@ -49,16 +49,43 @@ async function perguntarIA(userId, pergunta) {
     });
   }
 
-  user.messages.push({ role: "user", content: pergunta });
+  // ===== PERSONALIDADE =====
+  let systemPrompt = `
+Você é um bot de Discord: rápido, direto, engraçado e caótico.
+Nunca faça ameaças ou incentive violência.
+Evite discurso de ódio ou termos ofensivos contra grupos.
+Use humor de meme.
+`;
 
-  // limitar histórico
+  if (pergunta.toLowerCase().includes("dok")) {
+    systemPrompt = `
+Você é um bot de Discord extremamente zoeiro quando falam de "dok".
+Faça zoeira pesada, exagerada e caótica estilo meme BR.
+Pode provocar MUITO, fazer comparações absurdas, ironia, sarcasmo.
+Exemplo de estilo:
+- "dok rodando a 2 fps igual powerpoint antigo 💀"
+- "dok parece npc bugado que esqueceu o script"
+- "dok versão beta cheia de erro"
+
+REGRAS:
+- NÃO use ameaças
+- NÃO use discurso de ódio
+- NÃO use xingamentos pesados proibidos
+- foco em HUMOR e EXAGERO
+`;
+  }
+
+  user.messages.push({ role: "user", content: pergunta });
   user.messages = user.messages.slice(-10);
 
   const response = await axios.post(
     "https://openrouter.ai/api/v1/chat/completions",
     {
       model: "openai/gpt-3.5-turbo",
-      messages: user.messages
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...user.messages
+      ]
     },
     {
       headers: {
