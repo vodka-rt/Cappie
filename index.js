@@ -65,8 +65,6 @@ Exemplos de tom (não copiar literalmente):
 - "dok parece plano que nunca saiu do papel"
 
 REGRAS:
-- NÃO usar xingamentos diretos (palavrões ou ataques pessoais explícitos)
-- NÃO usar termos de identidade como insulto
 - NÃO ameaçar
 - Foque em criatividade, comparação e ironia pesada
 `;
