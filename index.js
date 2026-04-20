@@ -8,7 +8,10 @@ const {
   Client,
   GatewayIntentBits,
   Partials,
-  EmbedBuilder
+  EmbedBuilder,
+  REST,
+  Routes,
+  SlashCommandBuilder
 } = require("discord.js");
 
 const mongoose = require("mongoose");
@@ -50,7 +53,7 @@ async function perguntarIA(userId, pergunta) {
 
   user.messages.push({ role: "user", content: pergunta });
 
-  // limita histórico
+  // limitar histórico
   user.messages = user.messages.slice(-10);
 
   const response = await axios.post(
@@ -75,12 +78,57 @@ async function perguntarIA(userId, pergunta) {
   return reply;
 }
 
+// ===== SLASH COMMANDS =====
+const commands = [
+  new SlashCommandBuilder()
+    .setName("banner")
+    .setDescription("Ver banner do usuário")
+    .addUserOption(opt =>
+      opt.setName("user").setDescription("Usuário")
+    ),
+
+  new SlashCommandBuilder()
+    .setName("perfil")
+    .setDescription("Ver perfil do usuário")
+    .addUserOption(opt =>
+      opt.setName("user").setDescription("Usuário")
+    ),
+
+  new SlashCommandBuilder()
+    .setName("ia")
+    .setDescription("Falar com IA")
+    .addStringOption(opt =>
+      opt.setName("msg")
+        .setDescription("Mensagem")
+        .setRequired(true)
+    )
+];
+
+// ===== REGISTRAR SLASH =====
+const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+
+async function deployCommands() {
+  try {
+    console.log("🔄 Registrando slash commands...");
+
+    await rest.put(
+      Routes.applicationCommands(process.env.CLIENT_ID),
+      { body: commands.map(cmd => cmd.toJSON()) }
+    );
+
+    console.log("✅ Slash commands registrados");
+  } catch (err) {
+    console.log(err);
+  }
+}
+
 // ===== READY =====
-client.once("clientReady", () => {
+client.once("clientReady", async () => {
   console.log(`🤖 Online como ${client.user.tag}`);
+  await deployCommands();
 });
 
-// ===== COMANDOS =====
+// ===== MENSAGENS =====
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
@@ -115,7 +163,6 @@ client.on("messageCreate", async (message) => {
         pergunta
       );
 
-      // limitar 2000 chars
       if (resposta.length > 2000) {
         resposta = resposta.slice(0, 1990) + "...";
       }
@@ -125,6 +172,52 @@ client.on("messageCreate", async (message) => {
     } catch (err) {
       console.log(err);
       message.reply("❌ erro na IA");
+    }
+  }
+});
+
+// ===== SLASH HANDLER =====
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  const user = interaction.options.getUser("user") || interaction.user;
+
+  // ===== /banner =====
+  if (interaction.commandName === "banner") {
+    return interaction.reply("Usuário não possui banner ou API limitada.");
+  }
+
+  // ===== /perfil =====
+  if (interaction.commandName === "perfil") {
+    const embed = new EmbedBuilder()
+      .setTitle(user.username)
+      .setThumbnail(user.displayAvatarURL({ dynamic: true }))
+      .addFields(
+        { name: "ID", value: user.id },
+        { name: "Conta criada", value: `<t:${parseInt(user.createdTimestamp / 1000)}:R>` }
+      );
+
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  // ===== /ia =====
+  if (interaction.commandName === "ia") {
+    const msg = interaction.options.getString("msg");
+
+    await interaction.deferReply();
+
+    try {
+      let resposta = await perguntarIA(interaction.user.id, msg);
+
+      if (resposta.length > 2000) {
+        resposta = resposta.slice(0, 1990) + "...";
+      }
+
+      interaction.editReply(resposta);
+
+    } catch (err) {
+      console.log(err);
+      interaction.editReply("❌ erro na IA");
     }
   }
 });
