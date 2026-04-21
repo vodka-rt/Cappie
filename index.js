@@ -64,7 +64,7 @@ Use no máximo 1 emoji.
   }
 
   try {
-    console.log("Chamando OpenRouter...");
+    console.log("Chamando IA...");
 
     const res = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
@@ -83,10 +83,7 @@ Use no máximo 1 emoji.
 
     const reply = res.data?.choices?.[0]?.message?.content;
 
-    if (!reply) {
-      console.log("Resposta vazia");
-      return "Não consegui responder agora.";
-    }
+    if (!reply) return "Não consegui responder agora.";
 
     user.messages.push({ role: "assistant", content: reply });
     await user.save();
@@ -94,7 +91,7 @@ Use no máximo 1 emoji.
     return reply;
 
   } catch (err) {
-    console.log("ERRO OPENROUTER:");
+    console.log("ERRO IA:");
     console.log(JSON.stringify(err.response?.data, null, 2));
     return "Tive um probleminha pra responder agora.";
   }
@@ -111,14 +108,14 @@ client.on("messageCreate", async (message) => {
 
   console.log("Mensagem:", message.content);
 
-  // 🔒 anti duplicação
+  // anti duplicação
   try {
     await Lock.create({ _id: message.id });
   } catch {
     return;
   }
 
-  // comando teste
+  // teste
   if (message.content === "!ping") {
     return message.channel.send("pong");
   }
@@ -127,14 +124,13 @@ client.on("messageCreate", async (message) => {
   if (message.mentions.everyone) return;
   if (message.mentions.roles.size > 0) return;
 
-  // ✅ DETECÇÃO DE MENÇÃO (REGEX)
-  const mentionRegex = new RegExp(`<@!?${client.user.id}>`);
-  if (!mentionRegex.test(message.content)) return;
+  // ✅ DETECÇÃO REAL
+  if (!message.mentions.users.has(client.user.id)) return;
 
   console.log("MENÇÃO DETECTADA");
 
   const pergunta = message.content
-    .replace(mentionRegex, "")
+    .replace(new RegExp(`<@!?${client.user.id}>`, "g"), "")
     .trim();
 
   if (!pergunta) return;
