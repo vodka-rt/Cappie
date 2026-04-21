@@ -41,7 +41,6 @@ const EMOJIS = [
 ];
 
 function escolherEmoji() {
-  // 40% de chance de usar emoji
   if (Math.random() > 0.4) return "";
   return EMOJIS[Math.floor(Math.random() * EMOJIS.length)];
 }
@@ -57,17 +56,16 @@ async function perguntarIA(userId, pergunta) {
 Você é Cappie.
 
 REGRAS:
-- Responda EXATAMENTE o que a pessoa perguntou
+- Responda exatamente o que foi perguntado
 - Se for cumprimento, responda só com cumprimento
-- NÃO invente assunto
-- NÃO continue conversa antiga
+- Não invente assunto
 - Máx 1 frase
 - Português natural
-- NÃO use emojis escritos tipo :emoji:
+- Não use :emoji:
 `
   };
 
-  // 💥 memória controlada (sem bug)
+  // 💥 memória limpa (evita bug)
   user.messages = [{ role: "user", content: pergunta }];
 
   try {
@@ -76,8 +74,8 @@ REGRAS:
     const res = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "mistralai/mistral-7b-instruct",
-        max_tokens: 80,
+        model: "openrouter/auto",
+        max_tokens: 60,
         messages: [systemPrompt, ...user.messages]
       },
       {
@@ -85,7 +83,7 @@ REGRAS:
           Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
           "Content-Type": "application/json"
         },
-        timeout: 10000
+        timeout: 8000
       }
     );
 
@@ -93,7 +91,6 @@ REGRAS:
 
     if (!reply) return "Não consegui responder agora.";
 
-    // remove emoji fake
     reply = reply.replace(/:.*?:/g, "");
 
     const emoji = escolherEmoji();
@@ -135,8 +132,8 @@ client.on("messageCreate", async (message) => {
   if (message.mentions.everyone) return;
   if (message.mentions.roles.size > 0) return;
 
-  // DETECÇÃO DE MENÇÃO
   const mentionRegex = new RegExp(`<@!?${client.user.id}>`);
+
   if (!mentionRegex.test(message.content)) return;
 
   console.log("MENÇÃO DETECTADA");
@@ -145,7 +142,10 @@ client.on("messageCreate", async (message) => {
     .replace(mentionRegex, "")
     .trim();
 
-  if (!pergunta) return;
+  // 💥 evita crash (mensagem vazia)
+  if (!pergunta || pergunta.length < 2) {
+    return message.channel.send("Fala algo pra eu responder 😭");
+  }
 
   if (pergunta.length > 200) {
     return message.channel.send("Mensagem muito grande 😵");
