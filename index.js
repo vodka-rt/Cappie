@@ -63,7 +63,7 @@ Use SOMENTE esse formato:
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "meta-llama/llama-3-8b-instruct:free",
+        model: "google/gemma-7b-it:free",
         max_tokens: 120,
         messages: [
           { role: "system", content: systemPrompt },
