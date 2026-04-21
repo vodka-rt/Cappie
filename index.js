@@ -69,7 +69,7 @@ Use no máximo 1 emoji e não sempre.
     const res = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "meta-llama/llama-3-8b-instruct"
+        model: "meta-llama/llama-3-8b-instruct",
         max_tokens: 120,
         messages: [systemPrompt, ...user.messages]
       },
