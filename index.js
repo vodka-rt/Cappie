@@ -127,13 +127,14 @@ client.on("messageCreate", async (message) => {
   if (message.mentions.everyone) return;
   if (message.mentions.roles.size > 0) return;
 
-  // ✅ DETECÇÃO CORRETA DE MENÇÃO
-  if (!message.mentions.users.has(client.user.id)) return;
+  // ✅ DETECÇÃO DE MENÇÃO (REGEX)
+  const mentionRegex = new RegExp(`<@!?${client.user.id}>`);
+  if (!mentionRegex.test(message.content)) return;
 
   console.log("MENÇÃO DETECTADA");
 
   const pergunta = message.content
-    .replace(new RegExp(`<@!?${client.user.id}>`, "g"), "")
+    .replace(mentionRegex, "")
     .trim();
 
   if (!pergunta) return;
