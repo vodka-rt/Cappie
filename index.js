@@ -48,25 +48,7 @@ async function perguntarIA(userId, pergunta) {
 
   const systemPrompt = {
     role: "system",
-    content: `
-Você é Cappie.
-
-REGRAS:
-- Fale em português
-- Respostas curtas (máx 2 frases)
-- Natural e leve
-- Não repita frases
-
-EMOJIS (use às vezes, no máximo 1):
-<:OguriSmile:1496200764153139401>
-<:OguriUpset:1496200839423856651>
-<:OguriBless:1496200908952965321>
-<:OguriAnxious:1496200706841907423>
-<:OguriAnnoyed:1496200280314744842>
-<:OguriMunch:1496200598318743674>
-
-NUNCA escreva :emoji:
-`
+    content: "Responda em português, curto (1–2 frases), de forma natural."
   };
 
   user.messages.push({ role: "user", content: pergunta });
@@ -75,26 +57,48 @@ NUNCA escreva :emoji:
     user.messages = user.messages.slice(-10);
   }
 
-  try {
-    const res = await axios.post(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        model: MODEL,
-        max_tokens: 120,
-        messages: [systemPrompt, ...user.messages]
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json"
+  // 🔥 MODELOS (fallback)
+  const models = [
+    "openai/gpt-3.5-turbo",
+    "meta-llama/llama-3-8b-instruct"
+  ];
+
+  for (let model of models) {
+    try {
+      console.log("Tentando modelo:", model);
+
+      const res = await axios.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          model,
+          max_tokens: 120,
+          messages: [systemPrompt, ...user.messages]
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+            "Content-Type": "application/json"
+          }
         }
-      }
-    );
+      );
 
-    let reply = res.data?.choices?.[0]?.message?.content;
+      let reply = res.data?.choices?.[0]?.message?.content;
+      if (!reply) continue;
 
-    if (!reply) return "Não consegui responder agora.";
+      user.messages.push({ role: "assistant", content: reply });
+      await user.save();
 
+      return reply;
+
+    } catch (err) {
+      console.log("Erro modelo:", model);
+      console.log(err.response?.data || err.message);
+    }
+  }
+
+  // 🔥 FALLBACK FINAL (NUNCA FICA SEM RESPOSTA)
+  return "Tô meio lenta agora, tenta de novo daqui a pouco.";
+}
     // remove emoji quebrado
     reply = reply.replace(/<:.*?:>/g, "");
 
