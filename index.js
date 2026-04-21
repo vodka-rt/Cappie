@@ -38,16 +38,12 @@ const EMOJIS = {
 
 const Convo = mongoose.model("Convo", new mongoose.Schema({
   userId: String,
-  messages: Array,
   lastReply: String
 }));
 
 async function perguntarIA(userId, pergunta) {
   let user = await Convo.findOne({ userId });
-  if (!user) user = new Convo({ userId, messages: [], lastReply: "" });
-
-  // 🔥 RESET FORÇADO (resolve 90% dos bugs)
-  user.messages = [];
+  if (!user) user = new Convo({ userId, lastReply: "" });
 
   const usarEmoji = Math.random() < 0.25;
 
@@ -58,9 +54,8 @@ REGRAS:
 - Responda apenas em português
 - Nunca use inglês
 - Respostas curtas (máx 2 frases)
-- Não repita frases
 - Não invente assunto
-- Responda somente o que foi perguntado
+- Não repita resposta
 
 EMOJIS:
 - feliz: ${EMOJIS.feliz}
@@ -94,14 +89,14 @@ ${usarEmoji ? "Pode usar 1 emoji se fizer sentido." : "Não use emoji."}
 
     let reply = response.data.choices[0].message.content;
 
-    // remove tradução bugada
+    // remove bug de tradução
     if (reply.includes("(") && reply.includes(")")) {
       reply = reply.split("(")[0].trim();
     }
 
-    // 🔥 evita repetir mensagem
+    // evita repetir resposta
     if (reply === user.lastReply) {
-      return "Pode reformular? Não entendi direito.";
+      reply = "Pode falar de outro jeito?";
     }
 
     user.lastReply = reply;
@@ -160,10 +155,11 @@ client.on("messageCreate", async (message) => {
       resposta = resposta.slice(0, 1990);
     }
 
-    message.reply(resposta);
+    // 🔥 SEM ERRO 403
+    message.channel.send(`<@${message.author.id}> ${resposta}`);
 
   } catch {
-    message.reply("erro");
+    message.channel.send("erro");
   }
 });
 
