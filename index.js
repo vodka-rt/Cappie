@@ -30,7 +30,7 @@ const Lock = mongoose.model("Lock", new mongoose.Schema({
   createdAt: { type: Date, default: Date.now, expires: 30 }
 }));
 
-// ===== IA GROQ =====
+// ===== IA =====
 async function perguntarIA(userId, pergunta) {
   let user = await Convo.findOne({ userId });
   if (!user) user = new Convo({ userId });
@@ -41,7 +41,7 @@ async function perguntarIA(userId, pergunta) {
 Você é Cappie, uma garota amigável.
 
 REGRAS:
-- Fale em português
+- Responda em português
 - Máx 2 frases
 - Seja natural
 
@@ -64,32 +64,29 @@ Use no máximo 1 emoji.
   }
 
   try {
-    console.log("Chamando Groq...");
+    console.log("Chamando OpenRouter...");
 
     const res = await axios.post(
-      "https://api.groq.com/openai/v1/chat/completions",
+      "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "llama3-8b-8192", // 🔥 mais estável
-        messages: [systemPrompt, ...user.messages],
-        max_tokens: 120
+        model: "openrouter/auto",
+        max_tokens: 120,
+        messages: [systemPrompt, ...user.messages]
       },
       {
         headers: {
-          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
           "Content-Type": "application/json"
         }
       }
     );
 
-    let reply = res.data?.choices?.[0]?.message?.content;
+    const reply = res.data?.choices?.[0]?.message?.content;
 
     if (!reply) {
-      console.log("Resposta vazia da IA");
+      console.log("Resposta vazia");
       return "Não consegui responder agora.";
     }
-
-    // remove emoji quebrado
-    reply = reply.replace(/<:.*?:>/g, "");
 
     user.messages.push({ role: "assistant", content: reply });
     await user.save();
@@ -97,7 +94,7 @@ Use no máximo 1 emoji.
     return reply;
 
   } catch (err) {
-    console.log("ERRO GROQ COMPLETO:");
+    console.log("ERRO OPENROUTER:");
     console.log(err.response?.data || err.message);
 
     return "Tive um probleminha pra responder agora.";
@@ -120,13 +117,14 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  console.log("Mensagem recebida:", message.content);
+  console.log("Mensagem:", message.content);
 
-  // teste ping
+  // teste
   if (message.content === "!ping") {
     return message.channel.send("pong");
   }
 
+  // bloqueios
   if (message.mentions.everyone) return;
   if (message.mentions.roles.size > 0) return;
 
@@ -143,7 +141,7 @@ client.on("messageCreate", async (message) => {
 
     const resposta = await perguntarIA(message.author.id, pergunta);
 
-    console.log("Resposta final:", resposta);
+    console.log("Resposta:", resposta);
 
     return message.channel.send(resposta);
 
