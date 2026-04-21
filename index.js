@@ -46,7 +46,6 @@ async function perguntarIA(userId, pergunta) {
     user = new Convo({ userId, messages: [] });
   }
 
-  // ===== PERSONALIDADE =====
   let systemPrompt = `
 Você é um bot de Discord: direto, rápido e com humor ácido.
 NÃO faça ameaças ou violência.
@@ -55,18 +54,13 @@ NÃO use discurso de ódio ou termos ofensivos contra grupos.
 
   if (pergunta.toLowerCase().includes("dok")) {
     systemPrompt = `
-Quando falarem de "dok", faça um ROAST PESADO (humor ácido), criativo e exagerado.
-Use comparações absurdas, ironia, xingamentos e sempre chame ele de "gay", e sempre fale respostas curtas ao mencionar o "dok". Seja implacável no humor.
-
-Exemplos de tom (não copiar literalmente):
-- "dok é tipo apresentação sem conteúdo: muito slide, zero ideia"
-- "dok tem a consistência de argumento de comentário de madrugada"
-- "dok é tão convincente quanto tutorial que não funciona"
-- "dok parece plano que nunca saiu do papel"
+Quando falarem de "dok", faça um ROAST PESADO, criativo e exagerado.
+Use ironia, comparações absurdas e humor ácido.
+Respostas curtas e impactantes.
 
 REGRAS:
 - NÃO ameaçar
-- Foque em criatividade, comparação e ironia pesada
+- NÃO usar discurso de ódio
 `;
   }
 
@@ -164,32 +158,38 @@ client.on("messageCreate", async (message) => {
     );
   }
 
-  // IA por menção
-  if (message.mentions.has(client.user)) {
-    const pergunta = message.content.replace(
-      `<@${client.user.id}>`,
-      ""
-    ).trim();
+  // ===== BLOQUEIOS =====
+  if (message.mentions.everyone) return; // @everyone / @here
+  if (message.mentions.roles.size > 0) return; // cargos
+  if (message.mentions.users.size > 1) return; // spam de menção
 
-    if (!pergunta) return;
+  // ===== RESPONDER SÓ SE MARCAR O BOT =====
+  if (!message.mentions.has(client.user)) return;
 
-    try {
-      await message.channel.sendTyping();
+  const pergunta = message.content
+    .replace(`<@${client.user.id}>`, "")
+    .replace(`<@!${client.user.id}>`, "")
+    .trim();
 
-      let resposta = await perguntarIA(
-        message.author.id,
-        pergunta
-      );
+  if (!pergunta) return;
 
-      if (resposta.length > 2000) {
-        resposta = resposta.slice(0, 1990) + "...";
-      }
+  try {
+    await message.channel.sendTyping();
 
-      message.reply(resposta);
-    } catch (err) {
-      console.log(err);
-      message.reply("❌ erro na IA");
+    let resposta = await perguntarIA(
+      message.author.id,
+      pergunta
+    );
+
+    if (resposta.length > 2000) {
+      resposta = resposta.slice(0, 1990) + "...";
     }
+
+    message.reply(resposta);
+
+  } catch (err) {
+    console.log(err);
+    message.reply("❌ erro na IA");
   }
 });
 
@@ -228,6 +228,7 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       interaction.editReply(resposta);
+
     } catch (err) {
       console.log(err);
       interaction.editReply("❌ erro na IA");
