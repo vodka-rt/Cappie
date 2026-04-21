@@ -1,14 +1,16 @@
-if (global.botStarted) process.exit();
-global.botStarted = true;
+// ===== PROTEÇÃO CONTRA DUPLICAÇÃO =====
+if (global.__botRunning) {
+  console.log("Já está rodando, encerrando duplicado");
+  process.exit(0);
+}
+global.__botRunning = true;
 
-const {
-  Client,
-  GatewayIntentBits
-} = require("discord.js");
-
+// ===== IMPORTS =====
+const { Client, GatewayIntentBits } = require("discord.js");
 const mongoose = require("mongoose");
 const axios = require("axios");
 
+// ===== CLIENT =====
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -22,13 +24,13 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("Mongo OK"))
   .catch(() => console.log("Erro Mongo"));
 
-// ===== MODELO =====
+// ===== MODEL =====
 const Convo = mongoose.model("Convo", new mongoose.Schema({
   userId: String,
   lastReply: String
 }));
 
-// ===== MODELOS (FUNCIONAIS) =====
+// ===== MODELOS =====
 const MODELS = [
   "nousresearch/nous-hermes-2-mixtral",
   "openai/gpt-3.5-turbo"
@@ -44,12 +46,11 @@ Você é um bot de Discord natural.
 
 REGRAS:
 - Responda em português
-- Resposta curta (máx 2 frases)
+- Máx 2 frases
 - Não invente assunto
 - Não repita resposta
 
 EMOJIS:
-Use SOMENTE:
 <:OguriSmile:1496200764153139401>
 <:OguriUpset:1496200839423856651>
 <:OguriBless:1496200908952965321>
@@ -88,7 +89,7 @@ Use SOMENTE:
 
       if (!reply) continue;
 
-      // remove bug de tradução
+      // limpa tradução bugada
       if (reply.includes("(") && reply.includes(")")) {
         reply = reply.split("(")[0].trim();
       }
@@ -101,7 +102,7 @@ Use SOMENTE:
       user.lastReply = reply;
       await user.save();
 
-      return reply; // 🔥 PARA AQUI (sem duplicar)
+      return reply; // 🔥 PARA AQUI
 
     } catch (err) {
       console.log("Erro no modelo:", model);
@@ -115,11 +116,12 @@ Use SOMENTE:
   return "Não consegui responder agora.";
 }
 
-// ===== BOT =====
+// ===== READY =====
 client.once("ready", () => {
   console.log("Bot online:", client.user.tag);
 });
 
+// ===== LISTENER ÚNICO =====
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
@@ -138,12 +140,14 @@ client.on("messageCreate", async (message) => {
 
     const resposta = await perguntarIA(message.author.id, pergunta);
 
-    // 🔥 envia UMA vez só
-    return message.channel.send(resposta);
+    console.log("Resposta final:", resposta);
+
+    // 🔥 GARANTE UMA RESPOSTA SÓ
+    await message.channel.send(resposta);
 
   } catch (err) {
     console.log("ERRO FINAL:", err);
-    return message.channel.send("erro");
+    await message.channel.send("erro");
   }
 });
 
