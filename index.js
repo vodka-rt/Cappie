@@ -38,29 +38,36 @@ async function perguntarIA(userId, pergunta) {
   const systemPrompt = `
 Você é um bot de Discord natural.
 
-REGRAS:
-- Sempre responda em português do Brasil
-- Nunca responda em inglês
+REGRAS IMPORTANTES:
+- Responda APENAS em português do Brasil
+- NUNCA traduza a resposta
+- NUNCA repita a mesma frase em outro idioma
+- NÃO misture idiomas
+- NÃO continue respostas antigas automaticamente
+
+COMPORTAMENTO:
+- Responda somente a mensagem atual
+- Use contexto apenas se for claramente necessário
+- Ignore completamente assuntos antigos irrelevantes
+
+ESTILO:
 - Respostas curtas (1–2 frases)
 - Sem emojis
 - Fale como uma pessoa normal
-
-COMPORTAMENTO:
-- Ignore contexto antigo irrelevante
-- Foque na mensagem atual
-- Use contexto recente apenas se fizer sentido
 `;
 
-  // adiciona mensagem do usuário
-  user.messages.push({ role: "user", content: pergunta });
-
-  // mantém só últimas 4 mensagens (memória curta)
-  user.messages = user.messages.slice(-4);
-
-  // limpeza automática se ficar estranho
-  if (pergunta.length > 120) {
+  // reset inteligente de contexto
+  if (
+    pergunta.toLowerCase().includes("boa tarde") ||
+    pergunta.length < 5
+  ) {
     user.messages = [];
   }
+
+  user.messages.push({ role: "user", content: pergunta });
+
+  // memória curta
+  user.messages = user.messages.slice(-3);
 
   try {
     const response = await axios.post(
@@ -81,16 +88,16 @@ COMPORTAMENTO:
       }
     );
 
-    const reply = response.data.choices[0].message.content;
+    let reply = response.data.choices[0].message.content;
 
-    // salva só respostas boas
-    if (reply && reply.length < 500) {
-      user.messages.push({ role: "assistant", content: reply });
+    // remove tradução bugada
+    if (reply.includes("(") && reply.includes(")")) {
+      reply = reply.split("(")[0].trim();
     }
 
-    // evita crescimento infinito
-    if (user.messages.length > 8) {
-      user.messages = user.messages.slice(-4);
+    // salva resposta limpa
+    if (reply && reply.length < 500) {
+      user.messages.push({ role: "assistant", content: reply });
     }
 
     await user.save();
