@@ -30,6 +30,29 @@ const Lock = mongoose.model("Lock", new mongoose.Schema({
   createdAt: { type: Date, default: Date.now, expires: 30 }
 }));
 
+// ===== EMOJIS =====
+const EMOJIS = {
+  feliz: "<:OguriSmile:1496200764153139401>",
+  triste: "<:OguriUpset:1496200839423856651>",
+  carinho: "<:OguriBless:1496200908952965321>",
+  ansioso: "<:OguriAnxious:1496200706841907423>",
+  irritado: "<:OguriAnnoyed:1496200280314744842>",
+  comida: "<:OguriMunch:1496200598318743674>"
+};
+
+function escolherEmoji(texto) {
+  texto = texto.toLowerCase();
+
+  if (texto.includes("triste")) return EMOJIS.triste;
+  if (texto.includes("feliz") || texto.includes("bom")) return EMOJIS.feliz;
+  if (texto.includes("amor") || texto.includes("obrigado")) return EMOJIS.carinho;
+  if (texto.includes("ansioso") || texto.includes("nervoso")) return EMOJIS.ansioso;
+  if (texto.includes("raiva") || texto.includes("irritado")) return EMOJIS.irritado;
+  if (texto.includes("comida") || texto.includes("comer")) return EMOJIS.comida;
+
+  return "";
+}
+
 // ===== IA =====
 async function perguntarIA(userId, pergunta) {
   let user = await Convo.findOne({ userId });
@@ -38,22 +61,14 @@ async function perguntarIA(userId, pergunta) {
   const systemPrompt = {
     role: "system",
     content: `
-Você é Cappie, uma garota amigável.
+Você é Cappie, uma garota amigável e inteligente.
 
 REGRAS:
-- Responda em português
+- Responda APENAS o que foi perguntado
 - Máx 2 frases
-- Seja natural
-
-EMOJIS:
-<:OguriSmile:1496200764153139401>
-<:OguriUpset:1496200839423856651>
-<:OguriBless:1496200908952965321>
-<:OguriAnxious:1496200706841907423>
-<:OguriAnnoyed:1496200280314744842>
-<:OguriMunch:1496200598318743674>
-
-Use no máximo 1 emoji.
+- Português natural
+- Não invente assunto
+- Não use emojis escritos tipo :emoji:
 `
   };
 
@@ -69,7 +84,7 @@ Use no máximo 1 emoji.
     const res = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "openrouter/auto", // 🔥 único modelo → não trava
+        model: "mistralai/mistral-7b-instruct",
         max_tokens: 120,
         messages: [systemPrompt, ...user.messages]
       },
@@ -78,23 +93,28 @@ Use no máximo 1 emoji.
           Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
           "Content-Type": "application/json"
         },
-        timeout: 10000 // 🔥 evita crash
+        timeout: 10000
       }
     );
 
-    const reply = res.data?.choices?.[0]?.message?.content;
+    let reply = res.data?.choices?.[0]?.message?.content;
 
     if (!reply) return "Não consegui responder agora.";
+
+    // remove qualquer emoji fake
+    reply = reply.replace(/:.*?:/g, "");
+
+    const emoji = escolherEmoji(reply);
 
     user.messages.push({ role: "assistant", content: reply });
     await user.save();
 
-    return reply;
+    return emoji ? `${reply} ${emoji}` : reply;
 
   } catch (err) {
     console.log("ERRO IA:");
     console.log(err.code || err.message);
-    return "Tô meio lenta agora, tenta de novo 😵";
+    return "Tô meio lenta agora 😵";
   }
 }
 
@@ -109,23 +129,19 @@ client.on("messageCreate", async (message) => {
 
   console.log("Mensagem:", message.content);
 
-  // anti duplicação
   try {
     await Lock.create({ _id: message.id });
   } catch {
     return;
   }
 
-  // teste
   if (message.content === "!ping") {
     return message.channel.send("pong");
   }
 
-  // bloqueios
   if (message.mentions.everyone) return;
   if (message.mentions.roles.size > 0) return;
 
-  // só responde se mencionar o bot
   if (!message.mentions.users.has(client.user.id)) return;
 
   console.log("MENÇÃO DETECTADA");
@@ -136,7 +152,6 @@ client.on("messageCreate", async (message) => {
 
   if (!pergunta) return;
 
-  // proteção contra spam grande
   if (pergunta.length > 200) {
     return message.channel.send("Mensagem muito grande 😵");
   }
