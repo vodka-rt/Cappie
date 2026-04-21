@@ -41,7 +41,7 @@ const EMOJIS = [
 ];
 
 function escolherEmoji() {
-  if (Math.random() > 0.4) return "";
+  if (Math.random() > 0.5) return "";
   return EMOJIS[Math.floor(Math.random() * EMOJIS.length)];
 }
 
@@ -57,7 +57,6 @@ Você é Cappie.
 
 REGRAS:
 - Responda exatamente o que foi perguntado
-- Se for cumprimento, responda só com cumprimento
 - Não invente assunto
 - Máx 1 frase
 - Português natural
@@ -88,7 +87,9 @@ REGRAS:
 
     let reply = res.data?.choices?.[0]?.message?.content;
 
-    if (!reply) return "Não consegui responder agora.";
+    if (!reply || reply.length < 2) {
+      return "Não entendi direito 😅";
+    }
 
     reply = reply.replace(/:.*?:/g, "");
 
@@ -123,7 +124,7 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  // comando teste
+  // comando ping
   if (message.content === "!ping") {
     return message.reply("pong");
   }
@@ -131,8 +132,8 @@ client.on("messageCreate", async (message) => {
   if (message.mentions.everyone) return;
   if (message.mentions.roles.size > 0) return;
 
+  // detectar menção
   const mentionRegex = new RegExp(`<@!?${client.user.id}>`);
-
   if (!mentionRegex.test(message.content)) return;
 
   console.log("MENÇÃO DETECTADA");
@@ -141,9 +142,15 @@ client.on("messageCreate", async (message) => {
     .replace(mentionRegex, "")
     .trim();
 
-  // evita crash
+  // 🚫 evita mensagem vazia
   if (!pergunta || pergunta.length < 2) {
     return message.reply("Fala algo pra eu responder 😭");
+  }
+
+  // ⚡ respostas rápidas (sem IA)
+  const p = pergunta.toLowerCase();
+  if (p.includes("oi") || p.includes("olá") || p.includes("boa")) {
+    return message.reply("Oi! Tudo bem?");
   }
 
   if (pergunta.length > 200) {
@@ -157,7 +164,6 @@ client.on("messageCreate", async (message) => {
 
     console.log("Resposta:", resposta);
 
-    // 💥 RESPOSTA COM REPLY
     return message.reply({
       content: resposta,
       allowedMentions: { repliedUser: false }
