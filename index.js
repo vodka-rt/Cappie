@@ -65,7 +65,6 @@ REGRAS:
 `
   };
 
-  // 💥 memória limpa (evita bug)
   user.messages = [{ role: "user", content: pergunta }];
 
   try {
@@ -124,9 +123,9 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  // ping
+  // comando teste
   if (message.content === "!ping") {
-    return message.channel.send("pong");
+    return message.reply("pong");
   }
 
   if (message.mentions.everyone) return;
@@ -142,13 +141,13 @@ client.on("messageCreate", async (message) => {
     .replace(mentionRegex, "")
     .trim();
 
-  // 💥 evita crash (mensagem vazia)
+  // evita crash
   if (!pergunta || pergunta.length < 2) {
-    return message.channel.send("Fala algo pra eu responder 😭");
+    return message.reply("Fala algo pra eu responder 😭");
   }
 
   if (pergunta.length > 200) {
-    return message.channel.send("Mensagem muito grande 😵");
+    return message.reply("Mensagem muito grande 😵");
   }
 
   try {
@@ -158,11 +157,15 @@ client.on("messageCreate", async (message) => {
 
     console.log("Resposta:", resposta);
 
-    return message.channel.send(resposta);
+    // 💥 RESPOSTA COM REPLY
+    return message.reply({
+      content: resposta,
+      allowedMentions: { repliedUser: false }
+    });
 
   } catch (err) {
     console.log("ERRO FINAL:", err);
-    return message.channel.send("erro");
+    return message.reply("erro");
   }
 });
 
