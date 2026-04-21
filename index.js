@@ -19,7 +19,7 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("Mongo OK"))
   .catch(err => console.log("Erro Mongo:", err.message));
 
-// ===== MODELS =====
+// ===== MODEL =====
 const Convo = mongoose.model("Convo", new mongoose.Schema({
   userId: String,
   messages: { type: Array, default: [] }
@@ -30,36 +30,20 @@ const Lock = mongoose.model("Lock", new mongoose.Schema({
   createdAt: { type: Date, default: Date.now, expires: 30 }
 }));
 
-// ===== IA =====
+// ===== IA GROK =====
 async function perguntarIA(userId, pergunta) {
   let user = await Convo.findOne({ userId });
   if (!user) user = new Convo({ userId });
 
-  const systemPrompt = {
+  const system = {
     role: "system",
     content: `
-Você é Cappie, uma garota amigável e natural.
+Você é Cappie.
 
 REGRAS:
-- Responda em português
-- Máximo 2 frases
-- Seja leve, natural e humana
-- Não repita respostas
-- Não seja robótica
-
-EMOJIS (use às vezes, no máximo 1):
-<:OguriSmile:1496200764153139401> (feliz)
-<:OguriUpset:1496200839423856651> (triste)
-<:OguriBless:1496200908952965321> (carinho)
-<:OguriAnxious:1496200706841907423> (ansiosa)
-<:OguriAnnoyed:1496200280314744842> (irritada)
-<:OguriMunch:1496200598318743674> (comida)
-
-REGRAS DE EMOJI:
-- Use no máximo 1
-- Não use sempre
-- Nunca escreva :emoji:
-- Use exatamente o formato <:nome:id>
+- Fale em português
+- Máx 2 frases
+- Seja natural e leve
 `
   };
 
@@ -71,26 +55,23 @@ REGRAS DE EMOJI:
 
   try {
     const res = await axios.post(
-      "https://openrouter.ai/api/v1/chat/completions",
+      "https://api.x.ai/v1/chat/completions",
       {
-        model: "openai/gpt-3.5-turbo",
-        max_tokens: 120,
-        messages: [systemPrompt, ...user.messages]
+        model: "grok-2-latest", // 🔥 modelo Grok
+        messages: [system, ...user.messages],
+        max_tokens: 120
       },
       {
         headers: {
-          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          Authorization: `Bearer ${process.env.GROK_API_KEY}`,
           "Content-Type": "application/json"
         }
       }
     );
 
-    let reply = res.data?.choices?.[0]?.message?.content;
+    const reply = res.data?.choices?.[0]?.message?.content;
 
     if (!reply) return "Não consegui responder agora.";
-
-    // remove emoji quebrado
-    reply = reply.replace(/<:.*?:>/g, "");
 
     user.messages.push({ role: "assistant", content: reply });
     await user.save();
@@ -98,8 +79,8 @@ REGRAS DE EMOJI:
     return reply;
 
   } catch (err) {
-    console.log("Erro IA:", err.response?.data || err.message);
-    return "Não consegui responder agora.";
+    console.log("Erro Grok:", err.response?.data || err.message);
+    return "Erro ao falar com a IA.";
   }
 }
 
@@ -112,18 +93,12 @@ client.once("clientReady", () => {
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
-  // 🔒 trava duplicação
   try {
     await Lock.create({ _id: message.id });
   } catch {
     return;
   }
 
-  // 🚫 bloqueios
-  if (message.mentions.everyone) return;
-  if (message.mentions.roles.size > 0) return;
-
-  // responde só se marcar
   if (!message.mentions.has(client.user)) return;
 
   const pergunta = message.content
