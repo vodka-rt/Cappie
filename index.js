@@ -22,21 +22,21 @@ const client = new Client({
 // ===== BANCO =====
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("Mongo OK"))
-  .catch(() => console.log("Erro Mongo"));
+  .catch(err => console.log("Erro Mongo:", err.message));
 
-// ===== MODELS =====
+// ===== MODEL =====
 const Convo = mongoose.model("Convo", new mongoose.Schema({
   userId: String,
   lastReply: String
 }));
 
-// 🔒 LOCK GLOBAL (anti duplicação)
+// ===== LOCK GLOBAL (ANTI DUPLICAÇÃO) =====
 const Lock = mongoose.model("Lock", new mongoose.Schema({
   _id: String,
   createdAt: { type: Date, default: Date.now, expires: 30 }
 }));
 
-// ===== MODELOS CORRETOS =====
+// ===== MODELOS FUNCIONAIS =====
 const MODELS = [
   "openai/gpt-3.5-turbo",
   "meta-llama/llama-3-8b-instruct"
@@ -48,28 +48,14 @@ async function perguntarIA(userId, pergunta) {
   if (!user) user = new Convo({ userId, lastReply: "" });
 
   const systemPrompt = `
-Você é um bot de Discord natural.
+Você é um bot de Discord.
 
 REGRAS:
 - Responda em português
-- Máx 2 frases
+- Máximo 2 frases
 - Seja direto
 - Não invente assunto
 - Não repita resposta
-
-EMOJIS:
-Use SOMENTE:
-
-<:OguriSmile:1496200764153139401>
-<:OguriUpset:1496200839423856651>
-<:OguriBless:1496200908952965321>
-<:OguriAnxious:1496200706841907423>
-<:OguriAnnoyed:1496200280314744842>
-<:OguriMunch:1496200598318743674>
-
-- Use no máximo 1 emoji
-- Não use sempre
-- Nunca escreva :emoji:
 `;
 
   for (let model of MODELS) {
@@ -97,10 +83,7 @@ Use SOMENTE:
       let reply = res.data?.choices?.[0]?.message?.content;
       if (!reply) continue;
 
-      // remove emoji quebrado
-      reply = reply.replace(/<:.*?:>/g, "");
-
-      // evita repetição
+      // evita repetir resposta
       if (reply === user.lastReply) {
         reply = "Pode reformular?";
       }
@@ -108,13 +91,15 @@ Use SOMENTE:
       user.lastReply = reply;
       await user.save();
 
-      return reply;
+      return reply; // 🔥 retorna e para aqui
 
     } catch (err) {
       console.log("Erro modelo:", model);
 
       if (err.response) {
         console.log("DATA:", err.response.data);
+      } else {
+        console.log(err.message);
       }
     }
   }
@@ -127,11 +112,11 @@ client.once("ready", () => {
   console.log("Bot online:", client.user.tag);
 });
 
-// ===== LISTENER =====
+// ===== LISTENER ÚNICO =====
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
-  // 🔒 lock Mongo (impede múltiplas respostas)
+  // 🔒 trava duplicação entre instâncias
   try {
     await Lock.create({ _id: message.id });
   } catch {
@@ -140,6 +125,7 @@ client.on("messageCreate", async (message) => {
 
   console.log("Mensagem:", message.content);
 
+  // só responde se marcar o bot
   if (!message.mentions.has(client.user)) return;
 
   const pergunta = message.content
@@ -155,11 +141,11 @@ client.on("messageCreate", async (message) => {
 
     console.log("Resposta:", resposta);
 
-    await message.channel.send(resposta);
+    return message.channel.send(resposta);
 
   } catch (err) {
     console.log("ERRO FINAL:", err);
-    await message.channel.send("erro");
+    return message.channel.send("erro");
   }
 });
 
