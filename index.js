@@ -3,10 +3,7 @@ global.botStarted = true;
 
 const {
   Client,
-  GatewayIntentBits,
-  REST,
-  Routes,
-  SlashCommandBuilder
+  GatewayIntentBits
 } = require("discord.js");
 
 const mongoose = require("mongoose");
@@ -29,7 +26,7 @@ const Convo = mongoose.model("Convo", new mongoose.Schema({
   lastReply: String
 }));
 
-// 🔥 MODELOS COM FALLBACK
+// 🔥 MODELOS (FUNCIONAM)
 const MODELS = [
   "nousresearch/nous-hermes-2-mixtral",
   "openai/gpt-3.5-turbo"
@@ -40,15 +37,37 @@ async function perguntarIA(userId, pergunta) {
   if (!user) user = new Convo({ userId, lastReply: "" });
 
   const systemPrompt = `
-Responda em português, curto e direto.
-No máximo 2 frases.
+Você é um bot de Discord natural.
+
+REGRAS:
+- Sempre responda em português do Brasil
+- Respostas curtas (máx 2 frases)
+- Não invente assunto
+- Não repita respostas
+- Seja direto e natural
+
+EMOJIS:
+Você pode usar emojis SOMENTE nesse formato:
+
+<:OguriSmile:1496200764153139401> (feliz)
+<:OguriUpset:1496200839423856651> (triste)
+<:OguriBless:1496200908952965321> (amor)
+<:OguriAnxious:1496200706841907423> (ansiedade)
+<:OguriAnnoyed:1496200280314744842> (irritado)
+<:OguriMunch:1496200598318743674> (comida)
+
+REGRAS DE EMOJI:
+- Use no máximo 1 emoji
+- Não use sempre
+- Só use se fizer sentido
+- NUNCA escreva :emoji:
 `;
 
   for (let model of MODELS) {
     try {
-      console.log("Tentando modelo:", model);
+      console.log("Tentando:", model);
 
-      const response = await axios.post(
+      const res = await axios.post(
         "https://openrouter.ai/api/v1/chat/completions",
         {
           model,
@@ -66,10 +85,15 @@ No máximo 2 frases.
         }
       );
 
-      let reply = response.data.choices[0].message.content;
-
+      let reply = res.data.choices?.[0]?.message?.content;
       if (!reply) continue;
 
+      // remove tradução bugada
+      if (reply.includes("(") && reply.includes(")")) {
+        reply = reply.split("(")[0].trim();
+      }
+
+      // evita repetir
       if (reply === user.lastReply) {
         reply = "Pode explicar melhor?";
       }
@@ -84,9 +108,6 @@ No máximo 2 frases.
 
       if (err.response) {
         console.log("DATA:", err.response.data);
-        console.log("STATUS:", err.response.status);
-      } else {
-        console.log(err.message);
       }
     }
   }
@@ -94,27 +115,8 @@ No máximo 2 frases.
   return "Não consegui responder agora.";
 }
 
-const commands = [
-  new SlashCommandBuilder()
-    .setName("ia")
-    .setDescription("Falar com IA")
-    .addStringOption(o =>
-      o.setName("msg").setDescription("Mensagem").setRequired(true)
-    )
-];
-
-const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
-
-async function deployCommands() {
-  await rest.put(
-    Routes.applicationCommands(process.env.CLIENT_ID),
-    { body: commands.map(c => c.toJSON()) }
-  );
-}
-
-client.once("clientReady", async () => {
+client.once("ready", () => {
   console.log("Bot online:", client.user.tag);
-  await deployCommands();
 });
 
 client.on("messageCreate", async (message) => {
