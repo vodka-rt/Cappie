@@ -26,16 +26,6 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("Mongo OK"))
   .catch(() => {});
 
-// emojis
-const EMOJIS = {
-  feliz: "<:OguriSmile:1496200764153139401>",
-  triste: "<:OguriUpset:1496200839423856651>",
-  amor: "<:OguriBless:1496200908952965321>",
-  ansiedade: "<:OguriAnxious:1496200706841907423>",
-  irritado: "<:OguriAnnoyed:1496200280314744842>",
-  comida: "<:OguriMunch:1496200598318743674>"
-};
-
 const Convo = mongoose.model("Convo", new mongoose.Schema({
   userId: String,
   lastReply: String
@@ -45,27 +35,31 @@ async function perguntarIA(userId, pergunta) {
   let user = await Convo.findOne({ userId });
   if (!user) user = new Convo({ userId, lastReply: "" });
 
-  const usarEmoji = Math.random() < 0.25;
-
   const systemPrompt = `
-Você é um bot de Discord.
+Você é um bot de Discord natural.
 
 REGRAS:
-- Responda apenas em português
-- Nunca use inglês
+- Sempre responda em português do Brasil
 - Respostas curtas (máx 2 frases)
 - Não invente assunto
-- Não repita resposta
+- Não repita frases
 
 EMOJIS:
-- feliz: ${EMOJIS.feliz}
-- triste: ${EMOJIS.triste}
-- amor: ${EMOJIS.amor}
-- ansiedade: ${EMOJIS.ansiedade}
-- irritado: ${EMOJIS.irritado}
-- comida: ${EMOJIS.comida}
+Você pode usar emojis SOMENTE nesse formato:
 
-${usarEmoji ? "Pode usar 1 emoji se fizer sentido." : "Não use emoji."}
+<:OguriSmile:1496200764153139401> (feliz)
+<:OguriUpset:1496200839423856651> (triste)
+<:OguriBless:1496200908952965321> (amor)
+<:OguriAnxious:1496200706841907423> (ansiedade)
+<:OguriAnnoyed:1496200280314744842> (irritado)
+<:OguriMunch:1496200598318743674> (comida)
+
+REGRAS DE EMOJI:
+- Use no máximo 1 emoji
+- Não use sempre
+- Use apenas se fizer sentido
+- NUNCA escreva :emoji:
+- Use exatamente o formato <:nome:id>
 `;
 
   try {
@@ -94,7 +88,7 @@ ${usarEmoji ? "Pode usar 1 emoji se fizer sentido." : "Não use emoji."}
       reply = reply.split("(")[0].trim();
     }
 
-    // evita repetir resposta
+    // evita repetição
     if (reply === user.lastReply) {
       reply = "Pode falar de outro jeito?";
     }
