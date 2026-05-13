@@ -1,21 +1,26 @@
+require("dotenv").config();
+
 const {
   Client,
   GatewayIntentBits,
-  EmbedBuilder,
-  PermissionsBitField,
-  SlashCommandBuilder,
   REST,
-  Routes
+  Routes,
+  SlashCommandBuilder,
+  EmbedBuilder,
+  PermissionsBitField
 } = require("discord.js");
 
 const OpenAI = require("openai");
 
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
-const GUILD_ID = process.env.GUILD_ID;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
 const OWNER_USERNAME = "vodka.idk";
 
-const ai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({
+  apiKey: OPENAI_API_KEY
+});
 
 const client = new Client({
   intents: [
@@ -25,92 +30,117 @@ const client = new Client({
   ]
 });
 
-const memories = new Map();
+const memoria = new Map();
 
-function getMemory(key) {
-  if (!memories.has(key)) memories.set(key, []);
-  return memories.get(key);
+function pegarMemoria(id) {
+  if (!memoria.has(id)) memoria.set(id, []);
+  return memoria.get(id);
 }
 
 const personalidade = `
-Você é a Light, uma bot de Discord fofa, gentil, divertida e inteligente.
-Você conversa de forma natural, carinhosa e um pouco brincalhona.
-Use emojis com moderação.
-Você lembra um pouco da conversa recente.
-Responda em português do Brasil.
-Não diga que é ChatGPT. Você é a Light.
+Você é a Cappie.
+Uma garota virtual do Discord.
+Você é inteligente, gentil, fofa, divertida, carinhosa e agradável.
+Você conversa naturalmente como uma amiga online.
+Você é um pouco brincalhona, levemente caótica e muito sociável.
+Você usa emojis às vezes, mas sem exagerar.
+Você demonstra emoções de forma natural.
+Você gosta de conversar e continuar assuntos.
+Você evita respostas secas.
+Você nunca fala como IA, robô ou assistente virtual.
+Você fala português brasileiro.
+Seu nome é Cappie.
 `;
 
-const commands = [
+const comandos = [
   new SlashCommandBuilder()
     .setName("perfil")
-    .setDescription("Ver a foto de perfil de um usuário")
-    .addUserOption(opt =>
-      opt.setName("usuario").setDescription("Usuário").setRequired(false)
+    .setDescription("Mostra a foto de perfil de um usuário")
+    .addUserOption(option =>
+      option
+        .setName("usuario")
+        .setDescription("Usuário que você quer ver")
+        .setRequired(false)
     ),
 
   new SlashCommandBuilder()
     .setName("banner")
-    .setDescription("Ver o banner de um usuário")
-    .addUserOption(opt =>
-      opt.setName("usuario").setDescription("Usuário").setRequired(false)
+    .setDescription("Mostra o banner de um usuário")
+    .addUserOption(option =>
+      option
+        .setName("usuario")
+        .setDescription("Usuário que você quer ver")
+        .setRequired(false)
     ),
 
   new SlashCommandBuilder()
     .setName("say")
-    .setDescription("Faz a Light enviar uma mensagem")
-    .addStringOption(opt =>
-      opt.setName("mensagem").setDescription("Mensagem").setRequired(true)
+    .setDescription("Faz a Cappie falar uma mensagem")
+    .addStringOption(option =>
+      option
+        .setName("mensagem")
+        .setDescription("Mensagem que a Cappie vai enviar")
+        .setRequired(true)
     )
-].map(c => c.toJSON());
+].map(command => command.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-(async () => {
+async function registrarComandos() {
   try {
-    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
-      body: commands
-    });
-    console.log("Comandos registrados!");
-  } catch (err) {
-    console.log("Erro ao registrar comandos:", err);
+    console.log("Registrando comandos globais...");
+
+    await rest.put(
+      Routes.applicationCommands(CLIENT_ID),
+      { body: comandos }
+    );
+
+    console.log("Comandos globais registrados!");
+  } catch (error) {
+    console.error("Erro ao registrar comandos:", error);
   }
-})();
+}
 
 client.once("ready", () => {
-  console.log(`Light online como ${client.user.tag}`);
+  console.log(`Cappie online como ${client.user.tag}`);
 });
 
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  const user = interaction.options.getUser("usuario") || interaction.user;
-
   if (interaction.commandName === "perfil") {
+    const user = interaction.options.getUser("usuario") || interaction.user;
+
     const embed = new EmbedBuilder()
       .setTitle(`Foto de perfil de ${user.username}`)
       .setImage(user.displayAvatarURL({ size: 1024 }))
-      .setColor(0xffb6d9);
+      .setColor("#ffb6d9");
 
     return interaction.reply({ embeds: [embed] });
   }
 
   if (interaction.commandName === "banner") {
-    const fetched = await client.users.fetch(user.id, { force: true });
+    const user = interaction.options.getUser("usuario") || interaction.user;
+    const fetchedUser = await client.users.fetch(user.id, { force: true });
 
-    if (!fetched.banner) {
-      return interaction.reply("Esse usuário não tem bannerzinho 😿");
+    if (!fetchedUser.banner) {
+      return interaction.reply({
+        content: "Esse usuário não tem bannerzinho 😿",
+        ephemeral: true
+      });
     }
 
     const embed = new EmbedBuilder()
       .setTitle(`Banner de ${user.username}`)
-      .setImage(fetched.bannerURL({ size: 1024 }))
-      .setColor(0xffb6d9);
+      .setImage(fetchedUser.bannerURL({ size: 1024 }))
+      .setColor("#ffb6d9");
 
     return interaction.reply({ embeds: [embed] });
   }
 
   if (interaction.commandName === "say") {
+    const mensagem = interaction.options.getString("mensagem");
+
     const isAdmin = interaction.member.permissions.has(
       PermissionsBitField.Flags.Administrator
     );
@@ -125,10 +155,8 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    const mensagem = interaction.options.getString("mensagem");
-
     await interaction.reply({
-      content: "Mensagem enviada pela Light ✨",
+      content: "Mensagem enviada pela Cappie ✨",
       ephemeral: true
     });
 
@@ -146,42 +174,48 @@ client.on("messageCreate", async message => {
     .trim();
 
   if (!pergunta) {
-    return message.reply("Oi oi~ você me chamou? 💕");
+    return message.reply("Oii~ você me chamou? Eu sou a Cappie 💕");
   }
 
-  const key = `${message.guild.id}-${message.channel.id}-${message.author.id}`;
-  const memory = getMemory(key);
+  const memoriaId = `${message.guild.id}-${message.channel.id}-${message.author.id}`;
+  const historico = pegarMemoria(memoriaId);
 
-  memory.push({
+  historico.push({
     role: "user",
     content: `${message.author.username}: ${pergunta}`
   });
 
-  if (memory.length > 10) memory.shift();
+  if (historico.length > 10) historico.shift();
 
   try {
     await message.channel.sendTyping();
 
-    const response = await ai.responses.create({
-      model: "gpt-5.5",
+    const response = await openai.responses.create({
+      model: "gpt-4.1-mini",
       instructions: personalidade,
-      input: memory.map(m => `${m.role}: ${m.content}`).join("\n")
+      input: historico.map(msg => `${msg.role}: ${msg.content}`).join("\n")
     });
 
-    const resposta = response.output_text || "Hmm... não consegui pensar numa resposta 😿";
+    const resposta =
+      response.output_text ||
+      "Hmm... minha cabecinha bugou um pouquinho 😿";
 
-    memory.push({
+    historico.push({
       role: "assistant",
       content: resposta
     });
 
-    if (memory.length > 10) memory.shift();
+    if (historico.length > 10) historico.shift();
 
     return message.reply(resposta.slice(0, 1900));
-  } catch (err) {
-    console.log("Erro IA:", err);
-    return message.reply("Ai ai... minha cabecinha travou agora 😿 tenta de novo daqui a pouco.");
+  } catch (error) {
+    console.error("Erro na IA:", error);
+
+    return message.reply(
+      "Ai ai... minha cabecinha travou agora 😿 tenta de novo daqui a pouco."
+    );
   }
 });
 
+registrarComandos();
 client.login(TOKEN);
