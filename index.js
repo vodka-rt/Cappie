@@ -819,12 +819,6 @@ if ((tipo === "numero" || tipo === "cavalo") && participantesMap.size < 2) {
     ephemeral: true
   });
 }
-  return interaction.reply({
-    content: "Aposta inválida.",
-    ephemeral: true
-  });
-}
-
     const nomes = {
       coinflip: "Cara ou Coroa",
       numero: "Número",
