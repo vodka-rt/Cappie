@@ -1,7 +1,5 @@
 require("dotenv").config();
 
-const express = require("express");
-
 const {
   Client,
   GatewayIntentBits,
@@ -10,12 +8,7 @@ const {
   SlashCommandBuilder,
   EmbedBuilder,
   PermissionsBitField,
-  ActivityType,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  ComponentType,
-  StringSelectMenuBuilder
+  ActivityType
 } = require("discord.js");
 
 const Groq = require("groq-sdk");
@@ -28,21 +21,7 @@ const MONGO_URI = process.env.MONGO_URI;
 
 const OWNER_USERNAME = "vodka.idk";
 
-const app = express();
-
-app.get("/", (req, res) => {
-  res.send("Cappie está online.");
-});
-
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log(`Servidor web fake rodando na porta ${PORT}`);
-});
-
-const groq = new Groq({
-  apiKey: GROQ_API_KEY
-});
+const groq = new Groq({ apiKey: GROQ_API_KEY });
 
 const client = new Client({
   intents: [
@@ -61,20 +40,17 @@ const userSchema = new mongoose.Schema({
 const EconomyUser = mongoose.model("EconomyUser", userSchema);
 
 async function getUser(userId) {
-  return await EconomyUser.findOneAndUpdate(
-    { userId },
-    {
-      $setOnInsert: {
-        userId,
-        nekocoins: 0,
-        lastDaily: 0
-      }
-    },
-    {
-      new: true,
-      upsert: true
-    }
-  );
+  let user = await EconomyUser.findOne({ userId });
+
+  if (!user) {
+    user = await EconomyUser.create({
+      userId,
+      nekocoins: 0,
+      lastDaily: 0
+    });
+  }
+
+  return user;
 }
 
 const memoria = new Map();
@@ -158,23 +134,26 @@ const comandos = [
     ),
 
   new SlashCommandBuilder()
-    .setName("pay")
-    .setDescription("Enviar nekocoins para outro usuário")
-    .addUserOption(option =>
-      option.setName("usuario").setDescription("Usuário que vai receber").setRequired(true)
-    )
-    .addIntegerOption(option =>
-      option.setName("valor").setDescription("Valor enviado").setRequired(true).setMinValue(1)
-    ),
-
-  new SlashCommandBuilder()
     .setName("apostar")
-    .setDescription("Aposte nekocoins contra outro usuário")
-    .addUserOption(option =>
-      option.setName("usuario").setDescription("Usuário que você quer desafiar").setRequired(true)
+    .setDescription("Aposte seus nekocoins")
+    .addStringOption(option =>
+      option
+        .setName("tipo")
+        .setDescription("Tipo de aposta")
+        .setRequired(true)
+        .addChoices(
+          { name: "cara", value: "cara" },
+          { name: "coroa", value: "coroa" },
+          { name: "dado", value: "dado" },
+          { name: "slots", value: "slots" }
+        )
     )
     .addIntegerOption(option =>
-      option.setName("valor").setDescription("Valor da aposta").setRequired(true).setMinValue(100)
+      option
+        .setName("valor")
+        .setDescription("Valor da aposta")
+        .setRequired(true)
+        .setMinValue(100)
     )
 ].map(command => command.toJSON());
 
@@ -190,7 +169,7 @@ async function registrarComandos() {
   }
 }
 
-client.once("clientReady", () => {
+client.once("clientReady", async () => {
   console.log(`Cappie online como ${client.user.tag}`);
 
   let index = 0;
@@ -228,7 +207,7 @@ client.on("interactionCreate", async interaction => {
 
     if (!fetchedUser.banner) {
       return interaction.reply({
-        content: "Esse usuário não tem bannerzinho.",
+        content: "Esse usuário não tem bannerzinho 😿",
         ephemeral: true
       });
     }
@@ -279,201 +258,90 @@ client.on("interactionCreate", async interaction => {
     return interaction.reply({ embeds: [embed] });
   }
 
-  if (interaction.commandName === "pay") {
-    const target = interaction.options.getUser("usuario");
+  if (interaction.commandName === "apostar") {
+    const tipo = interaction.options.getString("tipo");
     const valor = interaction.options.getInteger("valor");
+    const user = await getUser(interaction.user.id);
 
-    if (target.bot || target.id === interaction.user.id) {
+    if (valor <= 0) {
       return interaction.reply({
-        content: "Transferência inválida.",
+        content: "Escolhe um valor válido.",
         ephemeral: true
       });
     }
 
-    const sender = await getUser(interaction.user.id);
-    const receiver = await getUser(target.id);
-
-    if (sender.nekocoins < valor) {
+    if (user.nekocoins < valor) {
       return interaction.reply({
         content: "Você não tem nekocoins suficientes.",
         ephemeral: true
       });
     }
 
-    sender.nekocoins -= valor;
-    receiver.nekocoins += valor;
+    let ganhou = false;
+    let premio = 0;
+    let texto = "";
 
-    await sender.save();
-    await receiver.save();
+    if (tipo === "cara" || tipo === "coroa") {
+      const resultado = Math.random() < 0.5 ? "cara" : "coroa";
+      ganhou = resultado === tipo;
+      premio = valor;
+
+      texto = ganhou
+        ? `Deu **${resultado}**. Você ganhou **${premio.toLocaleString("pt-BR")} nekocoins**.`
+        : `Deu **${resultado}**. Você perdeu **${valor.toLocaleString("pt-BR")} nekocoins**.`;
+    }
+
+    if (tipo === "dado") {
+      const dado = Math.floor(Math.random() * 6) + 1;
+      ganhou = dado >= 4;
+      premio = valor;
+
+      texto = ganhou
+        ? `O dado caiu em **${dado}**. Você ganhou **${premio.toLocaleString("pt-BR")} nekocoins**.`
+        : `O dado caiu em **${dado}**. Você perdeu **${valor.toLocaleString("pt-BR")} nekocoins**.`;
+    }
+
+    if (tipo === "slots") {
+      const icons = ["🍒", "🍋", "🔔", "⭐", "🐾"];
+      const slot = [
+        icons[Math.floor(Math.random() * icons.length)],
+        icons[Math.floor(Math.random() * icons.length)],
+        icons[Math.floor(Math.random() * icons.length)]
+      ];
+
+      const iguais = slot[0] === slot[1] && slot[1] === slot[2];
+      const doisIguais =
+        slot[0] === slot[1] || slot[0] === slot[2] || slot[1] === slot[2];
+
+      if (iguais) {
+        ganhou = true;
+        premio = valor * 4;
+      } else if (doisIguais) {
+        ganhou = true;
+        premio = Math.floor(valor * 1.5);
+      } else {
+        ganhou = false;
+      }
+
+      texto = ganhou
+        ? `${slot.join(" | ")}\nVocê ganhou **${premio.toLocaleString("pt-BR")} nekocoins**.`
+        : `${slot.join(" | ")}\nVocê perdeu **${valor.toLocaleString("pt-BR")} nekocoins**.`;
+    }
+
+    if (ganhou) {
+      user.nekocoins += premio;
+    } else {
+      user.nekocoins -= valor;
+    }
+
+    await user.save();
 
     const embed = new EmbedBuilder()
-      .setTitle("Transferência enviada")
-      .setDescription(`${interaction.user} enviou **${valor.toLocaleString("pt-BR")} nekocoins** para ${target}.`)
-      .setColor("#ffb6d9");
+      .setTitle("Aposta")
+      .setDescription(`${texto}\n\nSaldo: **${user.nekocoins.toLocaleString("pt-BR")} nekocoins**`)
+      .setColor(ganhou ? "#a8ffb0" : "#ff9aa8");
 
     return interaction.reply({ embeds: [embed] });
-  }
-
-  if (interaction.commandName === "apostar") {
-    const desafiante = interaction.user;
-    const desafiado = interaction.options.getUser("usuario");
-    const valor = interaction.options.getInteger("valor");
-
-    if (desafiado.bot || desafiado.id === desafiante.id) {
-      return interaction.reply({
-        content: "Aposta inválida.",
-        ephemeral: true
-      });
-    }
-
-    const user1 = await getUser(desafiante.id);
-    const user2 = await getUser(desafiado.id);
-
-    if (user1.nekocoins < valor) {
-      return interaction.reply({
-        content: "Você não tem nekocoins suficientes.",
-        ephemeral: true
-      });
-    }
-
-    if (user2.nekocoins < valor) {
-      return interaction.reply({
-        content: `${desafiado} não tem nekocoins suficientes.`,
-        ephemeral: true
-      });
-    }
-
-    const rowAceitar = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("aceitar_aposta")
-        .setLabel("Aceitar")
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId("recusar_aposta")
-        .setLabel("Recusar")
-        .setStyle(ButtonStyle.Danger)
-    );
-
-    const embedConvite = new EmbedBuilder()
-      .setTitle("Aposta criada")
-      .setDescription(
-        `${desafiante} desafiou ${desafiado} valendo **${valor.toLocaleString("pt-BR")} nekocoins**.\n\n${desafiado}, você aceita?`
-      )
-      .setColor("#ffb6d9");
-
-    const msg = await interaction.reply({
-      embeds: [embedConvite],
-      components: [rowAceitar],
-      fetchReply: true
-    });
-
-    try {
-      const escolhaAceite = await msg.awaitMessageComponent({
-        componentType: ComponentType.Button,
-        time: 60000,
-        filter: i => i.user.id === desafiado.id
-      });
-
-      if (escolhaAceite.customId === "recusar_aposta") {
-        const embedRecusada = new EmbedBuilder()
-          .setTitle("Aposta recusada")
-          .setDescription(`${desafiado} recusou a aposta.`)
-          .setColor("#ff9aa8");
-
-        return escolhaAceite.update({
-          embeds: [embedRecusada],
-          components: []
-        });
-      }
-
-      const menu = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId("escolher_lado")
-          .setPlaceholder("Escolha seu lado")
-          .addOptions(
-            {
-              label: "Cara",
-              description: "Escolher cara",
-              value: "cara",
-              emoji: "🪙"
-            },
-            {
-              label: "Coroa",
-              description: "Escolher coroa",
-              value: "coroa",
-              emoji: "👑"
-            }
-          )
-      );
-
-      const embedEscolha = new EmbedBuilder()
-        .setTitle("Escolha seu lado")
-        .setDescription(
-          `${desafiado}, escolha **cara** ou **coroa**.\n${desafiante} fica com o outro lado.`
-        )
-        .setColor("#ffb6d9");
-
-      await escolhaAceite.update({
-        embeds: [embedEscolha],
-        components: [menu]
-      });
-
-      const escolhaLado = await msg.awaitMessageComponent({
-        componentType: ComponentType.StringSelect,
-        time: 60000,
-        filter: i => i.user.id === desafiado.id
-      });
-
-      const ladoDesafiado = escolhaLado.values[0];
-      const ladoDesafiante = ladoDesafiado === "cara" ? "coroa" : "cara";
-
-      const resultado = Math.random() < 0.5 ? "cara" : "coroa";
-      const vencedor = resultado === ladoDesafiado ? desafiado : desafiante;
-      const perdedor = vencedor.id === desafiante.id ? desafiado : desafiante;
-
-      const vencedorDb = await getUser(vencedor.id);
-      const perdedorDb = await getUser(perdedor.id);
-
-      if (perdedorDb.nekocoins < valor) {
-        return escolhaLado.update({
-          content: "A aposta foi cancelada porque um dos jogadores ficou sem saldo.",
-          embeds: [],
-          components: []
-        });
-      }
-
-      perdedorDb.nekocoins -= valor;
-      vencedorDb.nekocoins += valor;
-
-      await perdedorDb.save();
-      await vencedorDb.save();
-
-      const embedResultado = new EmbedBuilder()
-        .setTitle("Resultado da aposta")
-        .setDescription(
-          `🪙 Caiu **${resultado}**.\n\n` +
-          `${desafiado} escolheu **${ladoDesafiado}**.\n` +
-          `${desafiante} ficou com **${ladoDesafiante}**.\n\n` +
-          `Vencedor: ${vencedor}\n` +
-          `Ganhou **${valor.toLocaleString("pt-BR")} nekocoins**.`
-        )
-        .setColor("#a8ffb0");
-
-      return escolhaLado.update({
-        embeds: [embedResultado],
-        components: []
-      });
-    } catch (error) {
-      const embedCancelada = new EmbedBuilder()
-        .setTitle("Aposta cancelada")
-        .setDescription("Demoraram demais para responder.")
-        .setColor("#ff9aa8");
-
-      return interaction.editReply({
-        embeds: [embedCancelada],
-        components: []
-      });
-    }
   }
 });
 
@@ -485,32 +353,25 @@ client.on("messageCreate", async message => {
 
     const agora = Date.now();
     const cooldownDaily = 24 * 60 * 60 * 1000;
+    const tempoRestante = cooldownDaily - (agora - user.lastDaily);
 
-    const isOwner =
-      message.author.username.toLowerCase() === OWNER_USERNAME.toLowerCase();
+    if (tempoRestante > 0) {
+      const horas = Math.floor(tempoRestante / 1000 / 60 / 60);
+      const minutos = Math.floor((tempoRestante / 1000 / 60) % 60);
 
-    if (!isOwner) {
-      const tempoRestante = cooldownDaily - (agora - user.lastDaily);
-
-      if (tempoRestante > 0) {
-        const horas = Math.floor(tempoRestante / 1000 / 60 / 60);
-        const minutos = Math.floor((tempoRestante / 1000 / 60) % 60);
-
-        return message.reply(
-          `Você já pegou seu daily. Volte em **${horas}h ${minutos}m**.`
-        );
-      }
-
-      user.lastDaily = agora;
+      return message.reply(
+        `Você já pegou seu daily. Volte em **${horas}h ${minutos}m**.`
+      );
     }
 
     const ganho = Math.floor(Math.random() * 1001) + 1000;
 
     user.nekocoins += ganho;
+    user.lastDaily = agora;
     await user.save();
 
     return message.reply(
-      `Você recebeu **${ganho.toLocaleString("pt-BR")} nekocoins**.`
+      `Você recebeu **${ganho.toLocaleString("pt-BR")} nekocoins** no daily.`
     );
   }
 
