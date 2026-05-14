@@ -146,14 +146,8 @@ client.once("clientReady", () => {
   let index = 0;
 
   function atualizarStatus() {
-    client.user.setPresence({
-      activities: [
-        {
-          name: statusList[index],
-          type: ActivityType.Playing
-        }
-      ],
-      status: "idle"
+    client.user.setActivity(statusList[index], {
+      type: ActivityType.Custom
     });
 
     index++;
