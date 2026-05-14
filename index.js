@@ -170,6 +170,17 @@ const comandos = [
   new SlashCommandBuilder()
     .setName("apostar")
     .setDescription("Aposte nekocoins contra outro usuário")
+    .addStringOption(option =>
+      option
+        .setName("tipo")
+        .setDescription("Tipo da aposta")
+        .setRequired(true)
+        .addChoices(
+          { name: "Cara ou Coroa", value: "coinflip" },
+          { name: "Número", value: "numero" },
+          { name: "Corrida de Cavalo", value: "cavalo" }
+        )
+    )
     .addUserOption(option =>
       option.setName("usuario").setDescription("Usuário que você quer desafiar").setRequired(true)
     )
@@ -207,6 +218,36 @@ client.once("clientReady", () => {
   atualizarStatus();
   setInterval(atualizarStatus, 60000);
 });
+
+async function transferirMoedas(vencedorId, perdedorId, valor) {
+  const vencedor = await getUser(vencedorId);
+  const perdedor = await getUser(perdedorId);
+
+  if (perdedor.nekocoins < valor) return false;
+
+  perdedor.nekocoins -= valor;
+  vencedor.nekocoins += valor;
+
+  await perdedor.save();
+  await vencedor.save();
+
+  return true;
+}
+
+async function tirarDosDois(user1Id, user2Id, valor) {
+  const user1 = await getUser(user1Id);
+  const user2 = await getUser(user2Id);
+
+  if (user1.nekocoins < valor || user2.nekocoins < valor) return false;
+
+  user1.nekocoins -= valor;
+  user2.nekocoins -= valor;
+
+  await user1.save();
+  await user2.save();
+
+  return true;
+}
 
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
@@ -315,6 +356,7 @@ client.on("interactionCreate", async interaction => {
   }
 
   if (interaction.commandName === "apostar") {
+    const tipo = interaction.options.getString("tipo");
     const desafiante = interaction.user;
     const desafiado = interaction.options.getUser("usuario");
     const valor = interaction.options.getInteger("valor");
@@ -354,10 +396,16 @@ client.on("interactionCreate", async interaction => {
         .setStyle(ButtonStyle.Danger)
     );
 
+    const nomes = {
+      coinflip: "Cara ou Coroa",
+      numero: "Número",
+      cavalo: "Corrida de Cavalo"
+    };
+
     const embedConvite = new EmbedBuilder()
       .setTitle("Aposta criada")
       .setDescription(
-        `${desafiante} desafiou ${desafiado} valendo **${valor.toLocaleString("pt-BR")} nekocoins**.\n\n${desafiado}, você aceita?`
+        `${desafiante} desafiou ${desafiado} em **${nomes[tipo]}** valendo **${valor.toLocaleString("pt-BR")} nekocoins**.\n\n${desafiado}, você aceita?`
       )
       .setColor("#ffb6d9");
 
@@ -386,91 +434,321 @@ client.on("interactionCreate", async interaction => {
         });
       }
 
-      const menu = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId("escolher_lado")
-          .setPlaceholder("Escolha seu lado")
-          .addOptions(
-            {
-              label: "Cara",
-              description: "Escolher cara",
-              value: "cara",
-              emoji: "🪙"
-            },
-            {
-              label: "Coroa",
-              description: "Escolher coroa",
-              value: "coroa",
-              emoji: "👑"
-            }
-          )
-      );
+      if (tipo === "coinflip") {
+        const menu = new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("coinflip_lado")
+            .setPlaceholder("Escolha seu lado")
+            .addOptions(
+              { label: "Cara", value: "cara", emoji: "🪙" },
+              { label: "Coroa", value: "coroa", emoji: "👑" }
+            )
+        );
 
-      const embedEscolha = new EmbedBuilder()
-        .setTitle("Escolha seu lado")
-        .setDescription(
-          `${desafiado}, escolha **cara** ou **coroa**.\n${desafiante} fica com o outro lado.`
-        )
-        .setColor("#ffb6d9");
+        await escolhaAceite.update({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("Escolha seu lado")
+              .setDescription(`${desafiado}, escolha **cara** ou **coroa**.\n${desafiante} fica com o outro lado.`)
+              .setColor("#ffb6d9")
+          ],
+          components: [menu]
+        });
 
-      await escolhaAceite.update({
-        embeds: [embedEscolha],
-        components: [menu]
-      });
+        const escolhaLado = await msg.awaitMessageComponent({
+          componentType: ComponentType.StringSelect,
+          time: 60000,
+          filter: i => i.user.id === desafiado.id
+        });
 
-      const escolhaLado = await msg.awaitMessageComponent({
-        componentType: ComponentType.StringSelect,
-        time: 60000,
-        filter: i => i.user.id === desafiado.id
-      });
+        const ladoDesafiado = escolhaLado.values[0];
+        const ladoDesafiante = ladoDesafiado === "cara" ? "coroa" : "cara";
+        const resultado = Math.random() < 0.5 ? "cara" : "coroa";
 
-      const ladoDesafiado = escolhaLado.values[0];
-      const ladoDesafiante = ladoDesafiado === "cara" ? "coroa" : "cara";
+        const vencedor = resultado === ladoDesafiado ? desafiado : desafiante;
+        const perdedor = vencedor.id === desafiante.id ? desafiado : desafiante;
 
-      const resultado = Math.random() < 0.5 ? "cara" : "coroa";
-      const vencedor = resultado === ladoDesafiado ? desafiado : desafiante;
-      const perdedor = vencedor.id === desafiante.id ? desafiado : desafiante;
+        const ok = await transferirMoedas(vencedor.id, perdedor.id, valor);
 
-      const vencedorDb = await getUser(vencedor.id);
-      const perdedorDb = await getUser(perdedor.id);
+        if (!ok) {
+          return escolhaLado.update({
+            content: "Aposta cancelada porque alguém ficou sem saldo.",
+            embeds: [],
+            components: []
+          });
+        }
 
-      if (perdedorDb.nekocoins < valor) {
         return escolhaLado.update({
-          content: "A aposta foi cancelada porque um dos jogadores ficou sem saldo.",
-          embeds: [],
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("Resultado da aposta")
+              .setDescription(
+                `🪙 Caiu **${resultado}**.\n\n` +
+                `${desafiado} escolheu **${ladoDesafiado}**.\n` +
+                `${desafiante} ficou com **${ladoDesafiante}**.\n\n` +
+                `Vencedor: ${vencedor}\n` +
+                `Ganhou **${valor.toLocaleString("pt-BR")} nekocoins**.`
+              )
+              .setColor("#a8ffb0")
+          ],
           components: []
         });
       }
 
-      perdedorDb.nekocoins -= valor;
-      vencedorDb.nekocoins += valor;
+      if (tipo === "numero") {
+        const numeros = new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("numero_desafiado")
+            .setPlaceholder("Escolha um número de 1 a 10")
+            .addOptions(
+              ...Array.from({ length: 10 }, (_, i) => ({
+                label: `${i + 1}`,
+                value: `${i + 1}`
+              }))
+            )
+        );
 
-      await perdedorDb.save();
-      await vencedorDb.save();
+        await escolhaAceite.update({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("Aposta de número")
+              .setDescription(`${desafiado}, escolha um número de **1 a 10**.`)
+              .setColor("#ffb6d9")
+          ],
+          components: [numeros]
+        });
 
-      const embedResultado = new EmbedBuilder()
-        .setTitle("Resultado da aposta")
-        .setDescription(
-          `🪙 Caiu **${resultado}**.\n\n` +
-          `${desafiado} escolheu **${ladoDesafiado}**.\n` +
-          `${desafiante} ficou com **${ladoDesafiante}**.\n\n` +
-          `Vencedor: ${vencedor}\n` +
-          `Ganhou **${valor.toLocaleString("pt-BR")} nekocoins**.`
-        )
-        .setColor("#a8ffb0");
+        const escolhaNum2 = await msg.awaitMessageComponent({
+          componentType: ComponentType.StringSelect,
+          time: 60000,
+          filter: i => i.user.id === desafiado.id
+        });
 
-      return escolhaLado.update({
-        embeds: [embedResultado],
-        components: []
-      });
+        const numero2 = Number(escolhaNum2.values[0]);
+
+        const numeros2 = new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("numero_desafiante")
+            .setPlaceholder("Escolha um número de 1 a 10")
+            .addOptions(
+              ...Array.from({ length: 10 }, (_, i) => ({
+                label: `${i + 1}`,
+                value: `${i + 1}`
+              }))
+            )
+        );
+
+        await escolhaNum2.update({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("Aposta de número")
+              .setDescription(`${desafiante}, agora escolha um número de **1 a 10**.`)
+              .setColor("#ffb6d9")
+          ],
+          components: [numeros2]
+        });
+
+        const escolhaNum1 = await msg.awaitMessageComponent({
+          componentType: ComponentType.StringSelect,
+          time: 60000,
+          filter: i => i.user.id === desafiante.id
+        });
+
+        const numero1 = Number(escolhaNum1.values[0]);
+        const numeroSorteado = Math.floor(Math.random() * 10) + 1;
+
+        const dist1 = Math.abs(numero1 - numeroSorteado);
+        const dist2 = Math.abs(numero2 - numeroSorteado);
+
+        if (dist1 === dist2) {
+          return escolhaNum1.update({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("Empate")
+                .setDescription(
+                  `Número sorteado: **${numeroSorteado}**\n\n` +
+                  `${desafiante}: **${numero1}**\n` +
+                  `${desafiado}: **${numero2}**\n\n` +
+                  `Os dois chegaram na mesma distância. Ninguém perdeu nekocoins.`
+                )
+                .setColor("#ffdb9a")
+            ],
+            components: []
+          });
+        }
+
+        const vencedor = dist1 < dist2 ? desafiante : desafiado;
+        const perdedor = vencedor.id === desafiante.id ? desafiado : desafiante;
+
+        const ok = await transferirMoedas(vencedor.id, perdedor.id, valor);
+
+        if (!ok) {
+          return escolhaNum1.update({
+            content: "Aposta cancelada porque alguém ficou sem saldo.",
+            embeds: [],
+            components: []
+          });
+        }
+
+        return escolhaNum1.update({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("Resultado da aposta de número")
+              .setDescription(
+                `Número sorteado: **${numeroSorteado}**\n\n` +
+                `${desafiante}: **${numero1}**\n` +
+                `${desafiado}: **${numero2}**\n\n` +
+                `Vencedor: ${vencedor}\n` +
+                `Ganhou **${valor.toLocaleString("pt-BR")} nekocoins**.`
+              )
+              .setColor("#a8ffb0")
+          ],
+          components: []
+        });
+      }
+
+      if (tipo === "cavalo") {
+        const cavalos = [
+          { label: "Cavalo 1", value: "1", emoji: "🐴" },
+          { label: "Cavalo 2", value: "2", emoji: "🐎" },
+          { label: "Cavalo 3", value: "3", emoji: "🏇" },
+          { label: "Cavalo 4", value: "4", emoji: "🐴" },
+          { label: "Cavalo 5", value: "5", emoji: "🐎" }
+        ];
+
+        const menuCavalo2 = new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("cavalo_desafiado")
+            .setPlaceholder("Escolha seu cavalo")
+            .addOptions(...cavalos)
+        );
+
+        await escolhaAceite.update({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("Corrida de Cavalos")
+              .setDescription(`${desafiado}, escolha seu cavalo.`)
+              .setColor("#ffb6d9")
+          ],
+          components: [menuCavalo2]
+        });
+
+        const escolhaCavalo2 = await msg.awaitMessageComponent({
+          componentType: ComponentType.StringSelect,
+          time: 60000,
+          filter: i => i.user.id === desafiado.id
+        });
+
+        const cavalo2 = escolhaCavalo2.values[0];
+
+        const menuCavalo1 = new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("cavalo_desafiante")
+            .setPlaceholder("Escolha seu cavalo")
+            .addOptions(...cavalos)
+        );
+
+        await escolhaCavalo2.update({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("Corrida de Cavalos")
+              .setDescription(`${desafiante}, agora escolha seu cavalo.`)
+              .setColor("#ffb6d9")
+          ],
+          components: [menuCavalo1]
+        });
+
+        const escolhaCavalo1 = await msg.awaitMessageComponent({
+          componentType: ComponentType.StringSelect,
+          time: 60000,
+          filter: i => i.user.id === desafiante.id
+        });
+
+        const cavalo1 = escolhaCavalo1.values[0];
+        const vencedorCavalo = String(Math.floor(Math.random() * 5) + 1);
+
+        const acertou1 = cavalo1 === vencedorCavalo;
+        const acertou2 = cavalo2 === vencedorCavalo;
+
+        if (!acertou1 && !acertou2) {
+          const ok = await tirarDosDois(desafiante.id, desafiado.id, valor);
+
+          if (!ok) {
+            return escolhaCavalo1.update({
+              content: "Aposta cancelada porque alguém ficou sem saldo.",
+              embeds: [],
+              components: []
+            });
+          }
+
+          return escolhaCavalo1.update({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("Corrida finalizada")
+                .setDescription(
+                  `O cavalo vencedor foi o **${vencedorCavalo}**.\n\n` +
+                  `${desafiante} escolheu o cavalo **${cavalo1}**.\n` +
+                  `${desafiado} escolheu o cavalo **${cavalo2}**.\n\n` +
+                  `Ninguém acertou. Os dois perderam **${valor.toLocaleString("pt-BR")} nekocoins**.`
+                )
+                .setColor("#ff9aa8")
+            ],
+            components: []
+          });
+        }
+
+        if (acertou1 && acertou2) {
+          return escolhaCavalo1.update({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("Empate na corrida")
+                .setDescription(
+                  `O cavalo vencedor foi o **${vencedorCavalo}**.\n\n` +
+                  `Os dois escolheram o cavalo certo. Ninguém perdeu nekocoins.`
+                )
+                .setColor("#ffdb9a")
+            ],
+            components: []
+          });
+        }
+
+        const vencedor = acertou1 ? desafiante : desafiado;
+        const perdedor = acertou1 ? desafiado : desafiante;
+
+        const ok = await transferirMoedas(vencedor.id, perdedor.id, valor);
+
+        if (!ok) {
+          return escolhaCavalo1.update({
+            content: "Aposta cancelada porque alguém ficou sem saldo.",
+            embeds: [],
+            components: []
+          });
+        }
+
+        return escolhaCavalo1.update({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("Resultado da corrida")
+              .setDescription(
+                `O cavalo vencedor foi o **${vencedorCavalo}**.\n\n` +
+                `${desafiante} escolheu o cavalo **${cavalo1}**.\n` +
+                `${desafiado} escolheu o cavalo **${cavalo2}**.\n\n` +
+                `Vencedor: ${vencedor}\n` +
+                `Ganhou **${valor.toLocaleString("pt-BR")} nekocoins**.`
+              )
+              .setColor("#a8ffb0")
+          ],
+          components: []
+        });
+      }
     } catch (error) {
-      const embedCancelada = new EmbedBuilder()
-        .setTitle("Aposta cancelada")
-        .setDescription("Demoraram demais para responder.")
-        .setColor("#ff9aa8");
-
       return interaction.editReply({
-        embeds: [embedCancelada],
+        embeds: [
+          new EmbedBuilder()
+            .setTitle("Aposta cancelada")
+            .setDescription("Demoraram demais para responder.")
+            .setColor("#ff9aa8")
+        ],
         components: []
       });
     }
