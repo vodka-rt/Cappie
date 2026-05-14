@@ -85,6 +85,10 @@ function pegarMemoria(id) {
   return memoria.get(id);
 }
 
+function formatarCoins(valor) {
+  return valor.toLocaleString("pt-BR");
+}
+
 const personalidade = `
 Você é a Cappie.
 Uma garota-gatinha virtual do Discord.
@@ -161,15 +165,22 @@ const comandos = [
     .setName("pay")
     .setDescription("Enviar nekocoins para outro usuário")
     .addUserOption(option =>
-      option.setName("usuario").setDescription("Usuário que vai receber").setRequired(true)
+      option
+        .setName("usuario")
+        .setDescription("Usuário que vai receber")
+        .setRequired(true)
     )
     .addIntegerOption(option =>
-      option.setName("valor").setDescription("Valor enviado").setRequired(true).setMinValue(1)
+      option
+        .setName("valor")
+        .setDescription("Valor enviado")
+        .setRequired(true)
+        .setMinValue(1)
     ),
 
   new SlashCommandBuilder()
     .setName("apostar")
-    .setDescription("Aposte nekocoins contra outro usuário")
+    .setDescription("Aposte nekocoins")
     .addStringOption(option =>
       option
         .setName("tipo")
@@ -181,11 +192,36 @@ const comandos = [
           { name: "Corrida de Cavalo", value: "cavalo" }
         )
     )
-    .addUserOption(option =>
-      option.setName("usuario").setDescription("Usuário que você quer desafiar").setRequired(true)
-    )
     .addIntegerOption(option =>
-      option.setName("valor").setDescription("Valor da aposta").setRequired(true).setMinValue(100)
+      option
+        .setName("valor")
+        .setDescription("Valor da aposta")
+        .setRequired(true)
+        .setMinValue(100)
+    )
+    .addUserOption(option =>
+      option
+        .setName("usuario")
+        .setDescription("Participante 2")
+        .setRequired(false)
+    )
+    .addUserOption(option =>
+      option
+        .setName("usuario2")
+        .setDescription("Participante 3")
+        .setRequired(false)
+    )
+    .addUserOption(option =>
+      option
+        .setName("usuario3")
+        .setDescription("Participante 4")
+        .setRequired(false)
+    )
+    .addUserOption(option =>
+      option
+        .setName("usuario4")
+        .setDescription("Participante 5")
+        .setRequired(false)
     )
 ].map(command => command.toJSON());
 
@@ -219,34 +255,423 @@ client.once("clientReady", () => {
   setInterval(atualizarStatus, 60000);
 });
 
-async function transferirMoedas(vencedorId, perdedorId, valor) {
-  const vencedor = await getUser(vencedorId);
-  const perdedor = await getUser(perdedorId);
+async function cobrarParticipantes(participantes, valor) {
+  for (const user of participantes) {
+    const db = await getUser(user.id);
 
-  if (perdedor.nekocoins < valor) return false;
+    if (db.nekocoins < valor) {
+      return {
+        ok: false,
+        user
+      };
+    }
+  }
 
-  perdedor.nekocoins -= valor;
-  vencedor.nekocoins += valor;
+  for (const user of participantes) {
+    const db = await getUser(user.id);
+    db.nekocoins -= valor;
+    await db.save();
+  }
 
-  await perdedor.save();
-  await vencedor.save();
-
-  return true;
+  return {
+    ok: true
+  };
 }
 
-async function tirarDosDois(user1Id, user2Id, valor) {
-  const user1 = await getUser(user1Id);
-  const user2 = await getUser(user2Id);
+async function pagarVencedores(vencedores, pote) {
+  const premio = Math.floor(pote / vencedores.length);
 
-  if (user1.nekocoins < valor || user2.nekocoins < valor) return false;
+  for (const user of vencedores) {
+    const db = await getUser(user.id);
+    db.nekocoins += premio;
+    await db.save();
+  }
 
-  user1.nekocoins -= valor;
-  user2.nekocoins -= valor;
+  return premio;
+}
 
-  await user1.save();
-  await user2.save();
+function gerarMenuNumeros(customId) {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(customId)
+      .setPlaceholder("Escolha um número de 1 a 10")
+      .addOptions(
+        ...Array.from({ length: 10 }, (_, i) => ({
+          label: `${i + 1}`,
+          value: `${i + 1}`
+        }))
+      )
+  );
+}
 
-  return true;
+function gerarMenuCavalos(customId) {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(customId)
+      .setPlaceholder("Escolha seu cavalo")
+      .addOptions(
+        { label: "Cavalo 1", value: "1", emoji: "🐴" },
+        { label: "Cavalo 2", value: "2", emoji: "🐎" },
+        { label: "Cavalo 3", value: "3", emoji: "🏇" },
+        { label: "Cavalo 4", value: "4", emoji: "🐴" },
+        { label: "Cavalo 5", value: "5", emoji: "🐎" }
+      )
+  );
+}
+
+async function coletarAceites(interaction, msg, criador, convidados, tipo, valor) {
+  const aceitos = [criador];
+  const recusados = [];
+
+  if (convidados.length === 0) {
+    return aceitos;
+  }
+
+  const rowAceitar = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("aceitar_aposta")
+      .setLabel("Aceitar")
+      .setStyle(ButtonStyle.Success),
+
+    new ButtonBuilder()
+      .setCustomId("recusar_aposta")
+      .setLabel("Recusar")
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  const embedConvite = new EmbedBuilder()
+    .setTitle("Aposta criada")
+    .setDescription(
+      `${criador} criou uma aposta de **${tipo}** valendo **${formatarCoins(valor)} nekocoins**.\n\n` +
+      `Convidados:\n${convidados.map(u => `• ${u}`).join("\n")}\n\n` +
+      `Vocês têm 60 segundos para aceitar.`
+    )
+    .setColor("#ffb6d9");
+
+  await interaction.editReply({
+    embeds: [embedConvite],
+    components: [rowAceitar]
+  });
+
+  const collector = msg.createMessageComponentCollector({
+    componentType: ComponentType.Button,
+    time: 60000,
+    filter: i => convidados.some(u => u.id === i.user.id)
+  });
+
+  collector.on("collect", async i => {
+    if (i.customId === "aceitar_aposta") {
+      if (!aceitos.some(u => u.id === i.user.id)) {
+        aceitos.push(i.user);
+      }
+
+      await i.reply({
+        content: "Você entrou na aposta.",
+        ephemeral: true
+      });
+    }
+
+    if (i.customId === "recusar_aposta") {
+      if (!recusados.some(u => u.id === i.user.id)) {
+        recusados.push(i.user);
+      }
+
+      await i.reply({
+        content: "Você recusou a aposta.",
+        ephemeral: true
+      });
+    }
+
+    const pendentes = convidados.filter(
+      u =>
+        !aceitos.some(a => a.id === u.id) &&
+        !recusados.some(r => r.id === u.id)
+    );
+
+    const embedAtualizado = new EmbedBuilder()
+      .setTitle("Aposta criada")
+      .setDescription(
+        `${criador} criou uma aposta de **${tipo}** valendo **${formatarCoins(valor)} nekocoins**.\n\n` +
+        `Aceitaram:\n${aceitos.map(u => `• ${u}`).join("\n")}\n\n` +
+        `Pendentes:\n${pendentes.length ? pendentes.map(u => `• ${u}`).join("\n") : "ninguém"}`
+      )
+      .setColor("#ffb6d9");
+
+    await interaction.editReply({
+      embeds: [embedAtualizado],
+      components: [rowAceitar]
+    });
+  });
+
+  await new Promise(resolve => {
+    collector.on("end", resolve);
+  });
+
+  await interaction.editReply({
+    components: []
+  });
+
+  return aceitos;
+}
+
+async function apostaNumero(interaction, msg, participantes, valor) {
+  const escolhas = new Map();
+
+  for (const participante of participantes) {
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("Aposta de número")
+          .setDescription(`${participante}, escolha um número de **1 a 10**.`)
+          .setColor("#ffb6d9")
+      ],
+      components: [gerarMenuNumeros(`numero_${participante.id}`)]
+    });
+
+    const escolha = await msg.awaitMessageComponent({
+      componentType: ComponentType.StringSelect,
+      time: 60000,
+      filter: i => i.user.id === participante.id
+    });
+
+    const numero = Number(escolha.values[0]);
+    escolhas.set(participante.id, numero);
+
+    await escolha.reply({
+      content: `Você escolheu **${numero}**.`,
+      ephemeral: true
+    });
+  }
+
+  const cobranca = await cobrarParticipantes(participantes, valor);
+
+  if (!cobranca.ok) {
+    return interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("Aposta cancelada")
+          .setDescription(`${cobranca.user} ficou sem saldo suficiente.`)
+          .setColor("#ff9aa8")
+      ],
+      components: []
+    });
+  }
+
+  const numeroSorteado = Math.floor(Math.random() * 10) + 1;
+  const pote = valor * participantes.length;
+
+  let menorDistancia = Infinity;
+
+  for (const participante of participantes) {
+    const numero = escolhas.get(participante.id);
+    const distancia = Math.abs(numero - numeroSorteado);
+
+    if (distancia < menorDistancia) {
+      menorDistancia = distancia;
+    }
+  }
+
+  const vencedores = participantes.filter(participante => {
+    const numero = escolhas.get(participante.id);
+    return Math.abs(numero - numeroSorteado) === menorDistancia;
+  });
+
+  const premio = await pagarVencedores(vencedores, pote);
+
+  const linhas = participantes
+    .map(user => `${user}: **${escolhas.get(user.id)}**`)
+    .join("\n");
+
+  return interaction.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setTitle("Resultado da aposta de número")
+        .setDescription(
+          `Número sorteado: **${numeroSorteado}**\n\n` +
+          `${linhas}\n\n` +
+          `Pote total: **${formatarCoins(pote)} nekocoins**\n` +
+          `Vencedor(es): ${vencedores.map(u => `${u}`).join(", ")}\n` +
+          `Prêmio por vencedor: **${formatarCoins(premio)} nekocoins**`
+        )
+        .setColor("#a8ffb0")
+    ],
+    components: []
+  });
+}
+
+async function apostaCavalo(interaction, msg, participantes, valor) {
+  const escolhas = new Map();
+
+  for (const participante of participantes) {
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("Corrida de Cavalos")
+          .setDescription(`${participante}, escolha seu cavalo.`)
+          .setColor("#ffb6d9")
+      ],
+      components: [gerarMenuCavalos(`cavalo_${participante.id}`)]
+    });
+
+    const escolha = await msg.awaitMessageComponent({
+      componentType: ComponentType.StringSelect,
+      time: 60000,
+      filter: i => i.user.id === participante.id
+    });
+
+    const cavalo = escolha.values[0];
+    escolhas.set(participante.id, cavalo);
+
+    await escolha.reply({
+      content: `Você escolheu o cavalo **${cavalo}**.`,
+      ephemeral: true
+    });
+  }
+
+  const cobranca = await cobrarParticipantes(participantes, valor);
+
+  if (!cobranca.ok) {
+    return interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("Aposta cancelada")
+          .setDescription(`${cobranca.user} ficou sem saldo suficiente.`)
+          .setColor("#ff9aa8")
+      ],
+      components: []
+    });
+  }
+
+  const cavaloVencedor = String(Math.floor(Math.random() * 5) + 1);
+  const pote = valor * participantes.length;
+
+  const vencedores = participantes.filter(
+    user => escolhas.get(user.id) === cavaloVencedor
+  );
+
+  const linhas = participantes
+    .map(user => `${user}: cavalo **${escolhas.get(user.id)}**`)
+    .join("\n");
+
+  if (vencedores.length === 0) {
+    return interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("Corrida finalizada")
+          .setDescription(
+            `O cavalo vencedor foi o **${cavaloVencedor}**.\n\n` +
+            `${linhas}\n\n` +
+            `Ninguém acertou. Todos perderam **${formatarCoins(valor)} nekocoins**.`
+          )
+          .setColor("#ff9aa8")
+      ],
+      components: []
+    });
+  }
+
+  const premio = await pagarVencedores(vencedores, pote);
+
+  return interaction.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setTitle("Resultado da corrida")
+        .setDescription(
+          `O cavalo vencedor foi o **${cavaloVencedor}**.\n\n` +
+          `${linhas}\n\n` +
+          `Pote total: **${formatarCoins(pote)} nekocoins**\n` +
+          `Vencedor(es): ${vencedores.map(u => `${u}`).join(", ")}\n` +
+          `Prêmio por vencedor: **${formatarCoins(premio)} nekocoins**`
+        )
+        .setColor("#a8ffb0")
+    ],
+    components: []
+  });
+}
+
+async function apostaCoinflip(interaction, msg, participantes, valor) {
+  if (participantes.length !== 2) {
+    return interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("Aposta cancelada")
+          .setDescription("Cara ou Coroa precisa ter exatamente 2 pessoas.")
+          .setColor("#ff9aa8")
+      ],
+      components: []
+    });
+  }
+
+  const [desafiante, desafiado] = participantes;
+
+  const menu = new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId("coinflip_lado")
+      .setPlaceholder("Escolha seu lado")
+      .addOptions(
+        { label: "Cara", value: "cara", emoji: "🪙" },
+        { label: "Coroa", value: "coroa", emoji: "👑" }
+      )
+  );
+
+  await interaction.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setTitle("Cara ou Coroa")
+        .setDescription(`${desafiado}, escolha **cara** ou **coroa**.\n${desafiante} fica com o outro lado.`)
+        .setColor("#ffb6d9")
+    ],
+    components: [menu]
+  });
+
+  const escolhaLado = await msg.awaitMessageComponent({
+    componentType: ComponentType.StringSelect,
+    time: 60000,
+    filter: i => i.user.id === desafiado.id
+  });
+
+  const ladoDesafiado = escolhaLado.values[0];
+  const ladoDesafiante = ladoDesafiado === "cara" ? "coroa" : "cara";
+
+  await escolhaLado.reply({
+    content: `Você escolheu **${ladoDesafiado}**.`,
+    ephemeral: true
+  });
+
+  const cobranca = await cobrarParticipantes(participantes, valor);
+
+  if (!cobranca.ok) {
+    return interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("Aposta cancelada")
+          .setDescription(`${cobranca.user} ficou sem saldo suficiente.`)
+          .setColor("#ff9aa8")
+      ],
+      components: []
+    });
+  }
+
+  const resultado = Math.random() < 0.5 ? "cara" : "coroa";
+  const vencedor = resultado === ladoDesafiado ? desafiado : desafiante;
+  const pote = valor * 2;
+
+  await pagarVencedores([vencedor], pote);
+
+  return interaction.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setTitle("Resultado da aposta")
+        .setDescription(
+          `🪙 Caiu **${resultado}**.\n\n` +
+          `${desafiado}: **${ladoDesafiado}**\n` +
+          `${desafiante}: **${ladoDesafiante}**\n\n` +
+          `Vencedor: ${vencedor}\n` +
+          `Ganhou **${formatarCoins(pote)} nekocoins**.`
+        )
+        .setColor("#a8ffb0")
+    ],
+    components: []
+  });
 }
 
 client.on("interactionCreate", async interaction => {
@@ -314,7 +739,7 @@ client.on("interactionCreate", async interaction => {
 
     const embed = new EmbedBuilder()
       .setTitle(`Carteira de ${target.username}`)
-      .setDescription(`🐾 **${user.nekocoins.toLocaleString("pt-BR")} nekocoins**`)
+      .setDescription(`🐾 **${formatarCoins(user.nekocoins)} nekocoins**`)
       .setColor("#ffb6d9");
 
     return interaction.reply({ embeds: [embed] });
@@ -349,7 +774,7 @@ client.on("interactionCreate", async interaction => {
 
     const embed = new EmbedBuilder()
       .setTitle("Transferência enviada")
-      .setDescription(`${interaction.user} enviou **${valor.toLocaleString("pt-BR")} nekocoins** para ${target}.`)
+      .setDescription(`${interaction.user} enviou **${formatarCoins(valor)} nekocoins** para ${target}.`)
       .setColor("#ffb6d9");
 
     return interaction.reply({ embeds: [embed] });
@@ -357,44 +782,43 @@ client.on("interactionCreate", async interaction => {
 
   if (interaction.commandName === "apostar") {
     const tipo = interaction.options.getString("tipo");
-    const desafiante = interaction.user;
-    const desafiado = interaction.options.getUser("usuario");
     const valor = interaction.options.getInteger("valor");
+    const criador = interaction.user;
 
-    if (desafiado.bot || desafiado.id === desafiante.id) {
+    const convidadosRaw = [
+      interaction.options.getUser("usuario"),
+      interaction.options.getUser("usuario2"),
+      interaction.options.getUser("usuario3"),
+      interaction.options.getUser("usuario4")
+    ].filter(Boolean);
+
+    const participantesMap = new Map();
+
+    participantesMap.set(criador.id, criador);
+
+    for (const user of convidadosRaw) {
+      if (!user.bot && user.id !== criador.id) {
+        participantesMap.set(user.id, user);
+      }
+    }
+
+    const convidados = [...participantesMap.values()].filter(
+      user => user.id !== criador.id
+    );
+
+    if (tipo === "coinflip" && convidados.length !== 1) {
+      return interaction.reply({
+        content: "Cara ou Coroa precisa ter exatamente 2 pessoas: você e mais 1 usuário.",
+        ephemeral: true
+      });
+    }
+
+    if ((tipo === "numero" || tipo === "cavalo") && participantesMap.size < 1) {
       return interaction.reply({
         content: "Aposta inválida.",
         ephemeral: true
       });
     }
-
-    const user1 = await getUser(desafiante.id);
-    const user2 = await getUser(desafiado.id);
-
-    if (user1.nekocoins < valor) {
-      return interaction.reply({
-        content: "Você não tem nekocoins suficientes.",
-        ephemeral: true
-      });
-    }
-
-    if (user2.nekocoins < valor) {
-      return interaction.reply({
-        content: `${desafiado} não tem nekocoins suficientes.`,
-        ephemeral: true
-      });
-    }
-
-    const rowAceitar = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("aceitar_aposta")
-        .setLabel("Aceitar")
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId("recusar_aposta")
-        .setLabel("Recusar")
-        .setStyle(ButtonStyle.Danger)
-    );
 
     const nomes = {
       coinflip: "Cara ou Coroa",
@@ -402,351 +826,45 @@ client.on("interactionCreate", async interaction => {
       cavalo: "Corrida de Cavalo"
     };
 
-    const embedConvite = new EmbedBuilder()
-      .setTitle("Aposta criada")
-      .setDescription(
-        `${desafiante} desafiou ${desafiado} em **${nomes[tipo]}** valendo **${valor.toLocaleString("pt-BR")} nekocoins**.\n\n${desafiado}, você aceita?`
-      )
-      .setColor("#ffb6d9");
-
     const msg = await interaction.reply({
-      embeds: [embedConvite],
-      components: [rowAceitar],
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("Preparando aposta")
+          .setDescription("Só um momentinho...")
+          .setColor("#ffb6d9")
+      ],
       fetchReply: true
     });
 
     try {
-      const escolhaAceite = await msg.awaitMessageComponent({
-        componentType: ComponentType.Button,
-        time: 60000,
-        filter: i => i.user.id === desafiado.id
-      });
-
-      if (escolhaAceite.customId === "recusar_aposta") {
-        const embedRecusada = new EmbedBuilder()
-          .setTitle("Aposta recusada")
-          .setDescription(`${desafiado} recusou a aposta.`)
-          .setColor("#ff9aa8");
-
-        return escolhaAceite.update({
-          embeds: [embedRecusada],
-          components: []
-        });
-      }
+      const aceitos = await coletarAceites(
+        interaction,
+        msg,
+        criador,
+        convidados,
+        nomes[tipo],
+        valor
+      );
 
       if (tipo === "coinflip") {
-        const menu = new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId("coinflip_lado")
-            .setPlaceholder("Escolha seu lado")
-            .addOptions(
-              { label: "Cara", value: "cara", emoji: "🪙" },
-              { label: "Coroa", value: "coroa", emoji: "👑" }
-            )
-        );
-
-        await escolhaAceite.update({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("Escolha seu lado")
-              .setDescription(`${desafiado}, escolha **cara** ou **coroa**.\n${desafiante} fica com o outro lado.`)
-              .setColor("#ffb6d9")
-          ],
-          components: [menu]
-        });
-
-        const escolhaLado = await msg.awaitMessageComponent({
-          componentType: ComponentType.StringSelect,
-          time: 60000,
-          filter: i => i.user.id === desafiado.id
-        });
-
-        const ladoDesafiado = escolhaLado.values[0];
-        const ladoDesafiante = ladoDesafiado === "cara" ? "coroa" : "cara";
-        const resultado = Math.random() < 0.5 ? "cara" : "coroa";
-
-        const vencedor = resultado === ladoDesafiado ? desafiado : desafiante;
-        const perdedor = vencedor.id === desafiante.id ? desafiado : desafiante;
-
-        const ok = await transferirMoedas(vencedor.id, perdedor.id, valor);
-
-        if (!ok) {
-          return escolhaLado.update({
-            content: "Aposta cancelada porque alguém ficou sem saldo.",
-            embeds: [],
-            components: []
-          });
-        }
-
-        return escolhaLado.update({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("Resultado da aposta")
-              .setDescription(
-                `🪙 Caiu **${resultado}**.\n\n` +
-                `${desafiado} escolheu **${ladoDesafiado}**.\n` +
-                `${desafiante} ficou com **${ladoDesafiante}**.\n\n` +
-                `Vencedor: ${vencedor}\n` +
-                `Ganhou **${valor.toLocaleString("pt-BR")} nekocoins**.`
-              )
-              .setColor("#a8ffb0")
-          ],
-          components: []
-        });
+        return await apostaCoinflip(interaction, msg, aceitos, valor);
       }
 
       if (tipo === "numero") {
-        const numeros = new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId("numero_desafiado")
-            .setPlaceholder("Escolha um número de 1 a 10")
-            .addOptions(
-              ...Array.from({ length: 10 }, (_, i) => ({
-                label: `${i + 1}`,
-                value: `${i + 1}`
-              }))
-            )
-        );
-
-        await escolhaAceite.update({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("Aposta de número")
-              .setDescription(`${desafiado}, escolha um número de **1 a 10**.`)
-              .setColor("#ffb6d9")
-          ],
-          components: [numeros]
-        });
-
-        const escolhaNum2 = await msg.awaitMessageComponent({
-          componentType: ComponentType.StringSelect,
-          time: 60000,
-          filter: i => i.user.id === desafiado.id
-        });
-
-        const numero2 = Number(escolhaNum2.values[0]);
-
-        const numeros2 = new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId("numero_desafiante")
-            .setPlaceholder("Escolha um número de 1 a 10")
-            .addOptions(
-              ...Array.from({ length: 10 }, (_, i) => ({
-                label: `${i + 1}`,
-                value: `${i + 1}`
-              }))
-            )
-        );
-
-        await escolhaNum2.update({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("Aposta de número")
-              .setDescription(`${desafiante}, agora escolha um número de **1 a 10**.`)
-              .setColor("#ffb6d9")
-          ],
-          components: [numeros2]
-        });
-
-        const escolhaNum1 = await msg.awaitMessageComponent({
-          componentType: ComponentType.StringSelect,
-          time: 60000,
-          filter: i => i.user.id === desafiante.id
-        });
-
-        const numero1 = Number(escolhaNum1.values[0]);
-        const numeroSorteado = Math.floor(Math.random() * 10) + 1;
-
-        const dist1 = Math.abs(numero1 - numeroSorteado);
-        const dist2 = Math.abs(numero2 - numeroSorteado);
-
-        if (dist1 === dist2) {
-          return escolhaNum1.update({
-            embeds: [
-              new EmbedBuilder()
-                .setTitle("Empate")
-                .setDescription(
-                  `Número sorteado: **${numeroSorteado}**\n\n` +
-                  `${desafiante}: **${numero1}**\n` +
-                  `${desafiado}: **${numero2}**\n\n` +
-                  `Os dois chegaram na mesma distância. Ninguém perdeu nekocoins.`
-                )
-                .setColor("#ffdb9a")
-            ],
-            components: []
-          });
-        }
-
-        const vencedor = dist1 < dist2 ? desafiante : desafiado;
-        const perdedor = vencedor.id === desafiante.id ? desafiado : desafiante;
-
-        const ok = await transferirMoedas(vencedor.id, perdedor.id, valor);
-
-        if (!ok) {
-          return escolhaNum1.update({
-            content: "Aposta cancelada porque alguém ficou sem saldo.",
-            embeds: [],
-            components: []
-          });
-        }
-
-        return escolhaNum1.update({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("Resultado da aposta de número")
-              .setDescription(
-                `Número sorteado: **${numeroSorteado}**\n\n` +
-                `${desafiante}: **${numero1}**\n` +
-                `${desafiado}: **${numero2}**\n\n` +
-                `Vencedor: ${vencedor}\n` +
-                `Ganhou **${valor.toLocaleString("pt-BR")} nekocoins**.`
-              )
-              .setColor("#a8ffb0")
-          ],
-          components: []
-        });
+        return await apostaNumero(interaction, msg, aceitos, valor);
       }
 
       if (tipo === "cavalo") {
-        const cavalos = [
-          { label: "Cavalo 1", value: "1", emoji: "🐴" },
-          { label: "Cavalo 2", value: "2", emoji: "🐎" },
-          { label: "Cavalo 3", value: "3", emoji: "🏇" },
-          { label: "Cavalo 4", value: "4", emoji: "🐴" },
-          { label: "Cavalo 5", value: "5", emoji: "🐎" }
-        ];
-
-        const menuCavalo2 = new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId("cavalo_desafiado")
-            .setPlaceholder("Escolha seu cavalo")
-            .addOptions(...cavalos)
-        );
-
-        await escolhaAceite.update({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("Corrida de Cavalos")
-              .setDescription(`${desafiado}, escolha seu cavalo.`)
-              .setColor("#ffb6d9")
-          ],
-          components: [menuCavalo2]
-        });
-
-        const escolhaCavalo2 = await msg.awaitMessageComponent({
-          componentType: ComponentType.StringSelect,
-          time: 60000,
-          filter: i => i.user.id === desafiado.id
-        });
-
-        const cavalo2 = escolhaCavalo2.values[0];
-
-        const menuCavalo1 = new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId("cavalo_desafiante")
-            .setPlaceholder("Escolha seu cavalo")
-            .addOptions(...cavalos)
-        );
-
-        await escolhaCavalo2.update({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("Corrida de Cavalos")
-              .setDescription(`${desafiante}, agora escolha seu cavalo.`)
-              .setColor("#ffb6d9")
-          ],
-          components: [menuCavalo1]
-        });
-
-        const escolhaCavalo1 = await msg.awaitMessageComponent({
-          componentType: ComponentType.StringSelect,
-          time: 60000,
-          filter: i => i.user.id === desafiante.id
-        });
-
-        const cavalo1 = escolhaCavalo1.values[0];
-        const vencedorCavalo = String(Math.floor(Math.random() * 5) + 1);
-
-        const acertou1 = cavalo1 === vencedorCavalo;
-        const acertou2 = cavalo2 === vencedorCavalo;
-
-        if (!acertou1 && !acertou2) {
-          const ok = await tirarDosDois(desafiante.id, desafiado.id, valor);
-
-          if (!ok) {
-            return escolhaCavalo1.update({
-              content: "Aposta cancelada porque alguém ficou sem saldo.",
-              embeds: [],
-              components: []
-            });
-          }
-
-          return escolhaCavalo1.update({
-            embeds: [
-              new EmbedBuilder()
-                .setTitle("Corrida finalizada")
-                .setDescription(
-                  `O cavalo vencedor foi o **${vencedorCavalo}**.\n\n` +
-                  `${desafiante} escolheu o cavalo **${cavalo1}**.\n` +
-                  `${desafiado} escolheu o cavalo **${cavalo2}**.\n\n` +
-                  `Ninguém acertou. Os dois perderam **${valor.toLocaleString("pt-BR")} nekocoins**.`
-                )
-                .setColor("#ff9aa8")
-            ],
-            components: []
-          });
-        }
-
-        if (acertou1 && acertou2) {
-          return escolhaCavalo1.update({
-            embeds: [
-              new EmbedBuilder()
-                .setTitle("Empate na corrida")
-                .setDescription(
-                  `O cavalo vencedor foi o **${vencedorCavalo}**.\n\n` +
-                  `Os dois escolheram o cavalo certo. Ninguém perdeu nekocoins.`
-                )
-                .setColor("#ffdb9a")
-            ],
-            components: []
-          });
-        }
-
-        const vencedor = acertou1 ? desafiante : desafiado;
-        const perdedor = acertou1 ? desafiado : desafiante;
-
-        const ok = await transferirMoedas(vencedor.id, perdedor.id, valor);
-
-        if (!ok) {
-          return escolhaCavalo1.update({
-            content: "Aposta cancelada porque alguém ficou sem saldo.",
-            embeds: [],
-            components: []
-          });
-        }
-
-        return escolhaCavalo1.update({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("Resultado da corrida")
-              .setDescription(
-                `O cavalo vencedor foi o **${vencedorCavalo}**.\n\n` +
-                `${desafiante} escolheu o cavalo **${cavalo1}**.\n` +
-                `${desafiado} escolheu o cavalo **${cavalo2}**.\n\n` +
-                `Vencedor: ${vencedor}\n` +
-                `Ganhou **${valor.toLocaleString("pt-BR")} nekocoins**.`
-              )
-              .setColor("#a8ffb0")
-          ],
-          components: []
-        });
+        return await apostaCavalo(interaction, msg, aceitos, valor);
       }
     } catch (error) {
+      console.error("Erro na aposta:", error);
+
       return interaction.editReply({
         embeds: [
           new EmbedBuilder()
             .setTitle("Aposta cancelada")
-            .setDescription("Demoraram demais para responder.")
+            .setDescription("Demoraram demais para responder ou aconteceu um erro.")
             .setColor("#ff9aa8")
         ],
         components: []
@@ -788,7 +906,7 @@ client.on("messageCreate", async message => {
     await user.save();
 
     return message.reply(
-      `Você recebeu **${ganho.toLocaleString("pt-BR")} nekocoins**.`
+      `Você recebeu **${formatarCoins(ganho)} nekocoins**.`
     );
   }
 
