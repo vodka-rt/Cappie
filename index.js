@@ -54,6 +54,22 @@ Você fala português brasileiro.
 Seu nome é Cappie.
 `;
 
+const statusList = [
+  "meow ♡ queria morar nesse silêncio confortável",
+  "☁️ às vezes noites calmas dizem mais que palavras",
+  "meow ♡ snowfall tocando baixinho no fundo",
+  "🌙 eu gosto quando o mundo desacelera um pouco",
+  "🫧 perdida em pensamentos tranquilos",
+  "meow ♡ queria que momentos suaves durassem mais",
+  "☕ noites frias e músicas lentas combinam comigo",
+  "🌧️ ouvindo a chuva como se fosse música",
+  "💭 acho bonito quando tudo fica quietinho",
+  "🌙 hoje o céu parece confortável",
+  "🎀 meow ♡ você também sente essa calma?",
+  "💭 o silêncio pode ser aconchegante às vezes",
+  "🌌 noites frias combinam com pensamentos gentis"
+];
+
 const comandos = [
   new SlashCommandBuilder()
     .setName("perfil")
@@ -106,89 +122,29 @@ async function registrarComandos() {
 client.once("clientReady", () => {
   console.log(`Cappie online como ${client.user.tag}`);
 
-  const activities = [
-    {
-      name: "Øneheart - snowfall",
-      type: ActivityType.Listening
-    },
-
-    {
-      name: "meow ♡ queria morar nesse silêncio confortável",
-      type: ActivityType.Playing
-    },
-
-    {
-      name: "☁️ às vezes noites calmas dizem mais que palavras",
-      type: ActivityType.Playing
-    },
-
-    {
-      name: "meow ♡ snowfall tocando baixinho no fundo",
-      type: ActivityType.Playing
-    },
-
-    {
-      name: "🌙 eu gosto quando o mundo desacelera um pouco",
-      type: ActivityType.Playing
-    },
-
-    {
-      name: "🫧 perdida em pensamentos tranquilos",
-      type: ActivityType.Playing
-    },
-
-    {
-      name: "meow ♡ queria que momentos suaves durassem mais",
-      type: ActivityType.Playing
-    },
-
-    {
-      name: "☕ noites frias e músicas lentas combinam comigo",
-      type: ActivityType.Playing
-    },
-
-    {
-      name: "🌧️ ouvindo a chuva como se fosse música",
-      type: ActivityType.Playing
-    },
-
-    {
-      name: "💭 acho bonito quando tudo fica quietinho",
-      type: ActivityType.Playing
-    },
-
-    {
-      name: "🌙 hoje o céu parece confortável",
-      type: ActivityType.Playing
-    },
-
-    {
-      name: "🎀 meow ♡ você também sente essa calma?",
-      type: ActivityType.Playing
-    },
-
-    {
-      name: "💭 o silêncio pode ser aconchegante às vezes",
-      type: ActivityType.Playing
-    },
-
-    {
-      name: "🌌 noites frias combinam com pensamentos gentis",
-      type: ActivityType.Playing
-    }
-  ];
-
   let index = 0;
 
   function atualizarStatus() {
+    const frase = statusList[index];
+
     client.user.setPresence({
-      activities: [activities[index]],
+      activities: [
+        index % 3 === 0
+          ? {
+              name: "Øneheart - snowfall",
+              type: ActivityType.Listening
+            }
+          : {
+              name: frase,
+              type: ActivityType.Custom
+            }
+      ],
       status: "idle"
     });
 
     index++;
 
-    if (index >= activities.length) {
+    if (index >= statusList.length) {
       index = 0;
     }
   }
