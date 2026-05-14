@@ -125,12 +125,19 @@ client.once("clientReady", () => {
   let index = 0;
 
   function atualizarStatus() {
+    const frase = statusList[index];
+
     client.user.setPresence({
       activities: [
-        {
-          name: statusList[index],
-          type: ActivityType.Custom
-        }
+        index % 3 === 0
+          ? {
+              name: "Øneheart - snowfall",
+              type: ActivityType.Listening
+            }
+          : {
+              name: frase,
+              type: ActivityType.Custom
+            }
       ],
       status: "idle"
     });
