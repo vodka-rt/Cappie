@@ -1,5 +1,7 @@
 require("dotenv").config();
 
+const express = require("express");
+
 const {
   Client,
   GatewayIntentBits,
@@ -26,6 +28,18 @@ const MONGO_URI = process.env.MONGO_URI;
 
 const OWNER_USERNAME = "vodka.idk";
 
+const app = express();
+
+app.get("/", (req, res) => {
+  res.send("Cappie está online.");
+});
+
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`Servidor web fake rodando na porta ${PORT}`);
+});
+
 const groq = new Groq({
   apiKey: GROQ_API_KEY
 });
@@ -47,17 +61,20 @@ const userSchema = new mongoose.Schema({
 const EconomyUser = mongoose.model("EconomyUser", userSchema);
 
 async function getUser(userId) {
-  let user = await EconomyUser.findOne({ userId });
-
-  if (!user) {
-    user = await EconomyUser.create({
-      userId,
-      nekocoins: 0,
-      lastDaily: 0
-    });
-  }
-
-  return user;
+  return await EconomyUser.findOneAndUpdate(
+    { userId },
+    {
+      $setOnInsert: {
+        userId,
+        nekocoins: 0,
+        lastDaily: 0
+      }
+    },
+    {
+      new: true,
+      upsert: true
+    }
+  );
 }
 
 const memoria = new Map();
@@ -144,34 +161,20 @@ const comandos = [
     .setName("pay")
     .setDescription("Enviar nekocoins para outro usuário")
     .addUserOption(option =>
-      option
-        .setName("usuario")
-        .setDescription("Usuário que vai receber")
-        .setRequired(true)
+      option.setName("usuario").setDescription("Usuário que vai receber").setRequired(true)
     )
     .addIntegerOption(option =>
-      option
-        .setName("valor")
-        .setDescription("Valor enviado")
-        .setRequired(true)
-        .setMinValue(1)
+      option.setName("valor").setDescription("Valor enviado").setRequired(true).setMinValue(1)
     ),
 
   new SlashCommandBuilder()
     .setName("apostar")
     .setDescription("Aposte nekocoins contra outro usuário")
     .addUserOption(option =>
-      option
-        .setName("usuario")
-        .setDescription("Usuário que você quer desafiar")
-        .setRequired(true)
+      option.setName("usuario").setDescription("Usuário que você quer desafiar").setRequired(true)
     )
     .addIntegerOption(option =>
-      option
-        .setName("valor")
-        .setDescription("Valor da aposta")
-        .setRequired(true)
-        .setMinValue(100)
+      option.setName("valor").setDescription("Valor da aposta").setRequired(true).setMinValue(100)
     )
 ].map(command => command.toJSON());
 
@@ -270,9 +273,7 @@ client.on("interactionCreate", async interaction => {
 
     const embed = new EmbedBuilder()
       .setTitle(`Carteira de ${target.username}`)
-      .setDescription(
-        `🐾 **${user.nekocoins.toLocaleString("pt-BR")} nekocoins**`
-      )
+      .setDescription(`🐾 **${user.nekocoins.toLocaleString("pt-BR")} nekocoins**`)
       .setColor("#ffb6d9");
 
     return interaction.reply({ embeds: [embed] });
@@ -282,16 +283,9 @@ client.on("interactionCreate", async interaction => {
     const target = interaction.options.getUser("usuario");
     const valor = interaction.options.getInteger("valor");
 
-    if (target.bot) {
+    if (target.bot || target.id === interaction.user.id) {
       return interaction.reply({
-        content: "Você não pode enviar nekocoins para bots.",
-        ephemeral: true
-      });
-    }
-
-    if (target.id === interaction.user.id) {
-      return interaction.reply({
-        content: "Você não pode enviar nekocoins para você mesmo.",
+        content: "Transferência inválida.",
         ephemeral: true
       });
     }
@@ -314,9 +308,7 @@ client.on("interactionCreate", async interaction => {
 
     const embed = new EmbedBuilder()
       .setTitle("Transferência enviada")
-      .setDescription(
-        `${interaction.user} enviou **${valor.toLocaleString("pt-BR")} nekocoins** para ${target}.`
-      )
+      .setDescription(`${interaction.user} enviou **${valor.toLocaleString("pt-BR")} nekocoins** para ${target}.`)
       .setColor("#ffb6d9");
 
     return interaction.reply({ embeds: [embed] });
@@ -327,16 +319,9 @@ client.on("interactionCreate", async interaction => {
     const desafiado = interaction.options.getUser("usuario");
     const valor = interaction.options.getInteger("valor");
 
-    if (desafiado.bot) {
+    if (desafiado.bot || desafiado.id === desafiante.id) {
       return interaction.reply({
-        content: "Você não pode apostar contra bots.",
-        ephemeral: true
-      });
-    }
-
-    if (desafiado.id === desafiante.id) {
-      return interaction.reply({
-        content: "Você não pode apostar contra você mesmo.",
+        content: "Aposta inválida.",
         ephemeral: true
       });
     }
@@ -363,7 +348,6 @@ client.on("interactionCreate", async interaction => {
         .setCustomId("aceitar_aposta")
         .setLabel("Aceitar")
         .setStyle(ButtonStyle.Success),
-
       new ButtonBuilder()
         .setCustomId("recusar_aposta")
         .setLabel("Recusar")
@@ -425,7 +409,7 @@ client.on("interactionCreate", async interaction => {
       const embedEscolha = new EmbedBuilder()
         .setTitle("Escolha seu lado")
         .setDescription(
-          `${desafiado}, escolha **cara** ou **coroa**.\n${desafiante} ficará com o lado restante.`
+          `${desafiado}, escolha **cara** ou **coroa**.\n${desafiante} fica com o outro lado.`
         )
         .setColor("#ffb6d9");
 
@@ -444,12 +428,8 @@ client.on("interactionCreate", async interaction => {
       const ladoDesafiante = ladoDesafiado === "cara" ? "coroa" : "cara";
 
       const resultado = Math.random() < 0.5 ? "cara" : "coroa";
-
-      const vencedor =
-        resultado === ladoDesafiado ? desafiado : desafiante;
-
-      const perdedor =
-        vencedor.id === desafiante.id ? desafiado : desafiante;
+      const vencedor = resultado === ladoDesafiado ? desafiado : desafiante;
+      const perdedor = vencedor.id === desafiante.id ? desafiado : desafiante;
 
       const vencedorDb = await getUser(vencedor.id);
       const perdedorDb = await getUser(perdedor.id);
@@ -505,6 +485,7 @@ client.on("messageCreate", async message => {
 
     const agora = Date.now();
     const cooldownDaily = 24 * 60 * 60 * 1000;
+
     const isOwner =
       message.author.username.toLowerCase() === OWNER_USERNAME.toLowerCase();
 
