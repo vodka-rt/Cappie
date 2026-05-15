@@ -48,7 +48,8 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
   ]
 });
 
@@ -176,6 +177,20 @@ const comandos = [
         .setDescription("Valor enviado")
         .setRequired(true)
         .setMinValue(1)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("rank")
+    .setDescription("Mostra o ranking de nekocoins")
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName("global")
+        .setDescription("Mostra o ranking global de nekocoins")
+    )
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName("local")
+        .setDescription("Mostra o ranking de nekocoins deste servidor")
     ),
 
   new SlashCommandBuilder()
@@ -745,6 +760,68 @@ client.on("interactionCreate", async interaction => {
     return interaction.reply({ embeds: [embed] });
   }
 
+  if (interaction.commandName === "rank") {
+    const tipo = interaction.options.getSubcommand();
+
+    if (tipo === "global") {
+      const topUsers = await EconomyUser.find({})
+        .sort({ nekocoins: -1 })
+        .limit(10);
+
+      if (!topUsers.length) {
+        return interaction.reply("Ainda não tem ninguém no rank.");
+      }
+
+      const linhas = await Promise.all(
+        topUsers.map(async (data, index) => {
+          const user = await client.users.fetch(data.userId).catch(() => null);
+          const nome = user ? user.username : "Usuário desconhecido";
+
+          return `**${index + 1}.** ${nome} — **${formatarCoins(data.nekocoins)} nekocoins**`;
+        })
+      );
+
+      const embed = new EmbedBuilder()
+        .setTitle("Rank global de nekocoins")
+        .setDescription(linhas.join("\n"))
+        .setColor("#ffb6d9");
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    if (tipo === "local") {
+      await interaction.guild.members.fetch();
+
+      const memberIds = interaction.guild.members.cache
+        .filter(member => !member.user.bot)
+        .map(member => member.user.id);
+
+      const topUsers = await EconomyUser.find({
+        userId: { $in: memberIds }
+      })
+        .sort({ nekocoins: -1 })
+        .limit(10);
+
+      if (!topUsers.length) {
+        return interaction.reply("Ainda não tem ninguém deste servidor no rank.");
+      }
+
+      const linhas = topUsers.map((data, index) => {
+        const member = interaction.guild.members.cache.get(data.userId);
+        const nome = member ? member.user.username : "Usuário desconhecido";
+
+        return `**${index + 1}.** ${nome} — **${formatarCoins(data.nekocoins)} nekocoins**`;
+      });
+
+      const embed = new EmbedBuilder()
+        .setTitle(`Rank local de ${interaction.guild.name}`)
+        .setDescription(linhas.join("\n"))
+        .setColor("#ffb6d9");
+
+      return interaction.reply({ embeds: [embed] });
+    }
+  }
+
   if (interaction.commandName === "pay") {
     const target = interaction.options.getUser("usuario");
     const valor = interaction.options.getInteger("valor");
@@ -793,7 +870,6 @@ client.on("interactionCreate", async interaction => {
     ].filter(Boolean);
 
     const participantesMap = new Map();
-
     participantesMap.set(criador.id, criador);
 
     for (const user of convidadosRaw) {
@@ -813,12 +889,13 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-if ((tipo === "numero" || tipo === "cavalo") && participantesMap.size < 2) {
-  return interaction.reply({
-    content: "Você precisa de pelo menos 2 jogadores para apostar.",
-    ephemeral: true
-  });
-}
+    if ((tipo === "numero" || tipo === "cavalo") && participantesMap.size < 2) {
+      return interaction.reply({
+        content: "Você precisa de pelo menos 2 jogadores para apostar.",
+        ephemeral: true
+      });
+    }
+
     const nomes = {
       coinflip: "Cara ou Coroa",
       numero: "Número",
